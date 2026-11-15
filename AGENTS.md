@@ -73,6 +73,14 @@ cargo test -p akooti-core <name>  # one Rust test
 
 ## Task tracking
 
-Kaneo project "Akooti" — workspace `GAiYlKA3Nr2yEh3Ea40IY0f0tvK4rjQ0`, project
-`ql4kabfti5m3hlbofdlb5bek`. Tasks carry acceptance criteria and doc references;
-update their status/comment as part of each change.
+Kaneo account: **DEV MASTER** `heroldtamko39@gmail.com`, user id
+`hGBISIpmch9D6vbjBnKBiX4Ml6oP4heV`.
+
+- Workspace "Aplix": `GAiYlKA3Nr2yEh3Ea40IY0f0tvK4rjQ0`
+- Project "Akooti" (slug `AKO`): `ql4kabfti5m3hlbofdlb5bek`
+- Statuses are column slugs: `to-do`, `in-progress`, `in-review`, `done`.
+- Subtasks use `create_task_relation` with `sourceTaskId` = parent and
+  `targetTaskId` = child, `relationType: "subtask"`.
+
+Tasks carry acceptance criteria and doc references; update their
+status/comment as part of each change.
