@@ -7,7 +7,7 @@
     "beforeDevCommand": "bun run --filter @akooti/desktop dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "bun run --filter @akooti/desktop build",
-    "frontendDist": "../../apps/desktop/dist"
+    "frontendDist": "../apps/desktop/dist"
   },
   "app": {
     "withGlobalTauri": true,
