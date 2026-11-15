@@ -21,5 +21,6 @@ workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+akooti-core = { path = "../crates/akooti-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-mcp-bridge = "0.13"

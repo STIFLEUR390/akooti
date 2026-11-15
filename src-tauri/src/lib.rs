@@ -8,7 +8,12 @@
 
 #![forbid(unsafe_code)]
 
-use tauri::Manager;
+use akooti_core::VaultPaths;
+use tauri::{Manager, RunEvent, WindowEvent};
+
+mod vault_runtime;
+
+use vault_runtime::VaultRuntime;
 
 /// Runs the desktop application.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,14 +29,31 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(debug_assertions))]
     let builder = tauri::Builder::default();
 
-    builder
+    let app = builder
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title("Akooti")?;
             }
+            let data_dir = app.path().app_data_dir()?;
+            if !app.manage(VaultRuntime::new(VaultPaths::under_app_data(&data_dir))) {
+                return Err(std::io::Error::other("vault runtime is already managed").into());
+            }
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?;
 
+    app.run(|app, event| {
+        let runtime = app.state::<VaultRuntime>();
+        match event {
+            RunEvent::Resumed => runtime.resume(),
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => runtime.lock(),
+            RunEvent::WindowEvent {
+                event: WindowEvent::Focused(true),
+                ..
+            } => runtime.focus_gained(),
+            RunEvent::MainEventsCleared => runtime.enforce_auto_lock(),
+            _ => {}
+        }
+    });
     Ok(())
 }

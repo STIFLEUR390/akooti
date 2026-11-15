@@ -53,6 +53,12 @@ Les sous-processus `native-host` et `mcp` n'ont pas accès directement à la cl�
 3. **Zero-Leak garantit :**
 Les mots de passe ne traversent jamais la frontière MCP vers le LLM : ils vont directement de la RAM de `akooti` vers l'extension WXT, le port CDP du navigateur headless, ou l'environnement mémoire d'un processus enfant (`vault_exec`).
 
+4. **Amorçage local du coffre :**
+Le shell Tauri résout uniquement `app_data_dir` et transmet ce chemin au cœur.
+`akooti-core` gère ensuite `vault.meta` (sel et paramètres Argon2id publics) et
+`vault.db` (SQLCipher), puis applique le verrouillage d'inactivité et les
+événements de reprise sans dépendance Tauri dans le crate métier.
+
 ---
 
 ### 2. Structure Complète du Monorepo (`akooti/`)
@@ -78,6 +84,9 @@ akooti/
 │   │       ├── lib.rs
 │   │       ├── crypto.rs                # Argon2id, XChaCha20-Poly1305, gestion RAM zeroize
 │   │       ├── db.rs                    # Requêtes SQLCipher, multi-dossiers, historique, TTL tests
+│   │       ├── header.rs                # En-tête public d'amorçage du coffre
+│   │       ├── session.rs               # Verrouillage et compteur d'inactivité
+│   │       ├── vault.rs                 # Cycle de vie et API métier du coffre
 │   │       ├── routing.rs               # Moteur de règles auto vers `Dev Local` (.local, .test, etc.)
 │   │       ├── generator.rs             # Générateur aléatoire (OsRng) & Passphrases Diceware
 │   │       ├── health.rs                # Audit offline (zxcvbn, doublons, ancienneté) + HIBP k-Anonymity

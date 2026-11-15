@@ -3,6 +3,11 @@ Voici les deux schémas SQL complets et prêts pour la production pour **Akooti*
 1. **Le schéma SQLCipher local (`schema_local.sql`) :** Base relationnelle chiffrée au niveau fichier (AES-256 via SQLCipher) + double chiffrement applicatif (`XChaCha20-Poly1305`) sur les champs les plus critiques en RAM. Il intègre les **dossiers système par défaut** (`Personnel`, `Dev Local`, `Agents & MCP`), la **relation N:N multi-dossiers (`item_folders`)**, les **sélecteurs CSS/JS mémorisés**, l'**historique des mots de passe**, les **jetons MCP cloisonnés** et les **règles de routage local**.
 2. **Le schéma Supabase (`schema_supabase.sql`) :** Architecture **100 % Zero-Knowledge (E2EE)**. Supabase ne stocke jamais de texte en clair (ni titres, ni URLs, ni noms de dossiers) : chaque enregistrement est un **blob binaire/base64 chiffré côté client** accompagné uniquement des métadonnées techniques nécessaires à la synchronisation temps réel (*Supabase Realtime*), à la résolution de conflits (*Last-Write-Wins*) et aux suppressions logiques (*tombstones*).
 
+L'amorçage d'un coffre utilise `vault.meta` (sel et paramètres Argon2id) et
+`vault.db` (SQLCipher). Les paramètres KDF sont dupliqués dans `vault_meta` après
+ouverture et vérifiés contre l'en-tête public ; voir
+[ADR 0004](adr/0004-vault-bootstrap-header.md).
+
 ---
 
 ### 1. Schéma SQLCipher Local (`crates/akooti-core/migrations/001_init.sql`)

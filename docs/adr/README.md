@@ -9,3 +9,4 @@ ADR qui la référence.
 | [0001](0001-monorepo-rust-bun.md) | Monorepo Cargo + Bun, un binaire multi-modes | Acceptée |
 | [0002](0002-sqlcipher-local-vault.md) | Coffre local SQLCipher + chiffrement de champ XChaCha20 | Acceptée |
 | [0003](0003-mcp-stdio-blind-injection.md) | MCP stdio, daemon IPC et injection aveugle | Acceptée |
+| [0004](0004-vault-bootstrap-header.md) | En-tête public d'amorçage du coffre | Acceptée |
