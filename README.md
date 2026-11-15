@@ -231,9 +231,9 @@ bun run tauri dev
 ```bash
 bun run tauri dev              # Application desktop en mode développement
 bun run tauri build            # Binaire + installeurs
-bun run --filter desktop dev       # Frontend seul (navigateur)
-bun run --filter extension dev     # Extension WXT (HMR)
-bun run --filter extension build   # Build multi-navigateurs
+bun run --filter @akooti/desktop dev     # Frontend seul (navigateur)
+bun run --filter @akooti/extension dev   # Extension WXT (HMR)
+bun run --filter @akooti/extension build # Build multi-navigateurs
 cargo test --workspace         # Tests unitaires du cœur métier
 cargo clippy --workspace --all-targets
 ```
