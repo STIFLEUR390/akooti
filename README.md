@@ -130,6 +130,7 @@ Un **binaire unique Rust (`akooti`)** embarque l'interface GUI, le daemon, le po
 | Application desktop | Tauri v2 (Rust + React + TypeScript + Tailwind CSS) |
 | CLI / daemon | `tauri-plugin-cli`, `interprocess` (Unix Socket / Named Pipe), tray |
 | Extension | WXT (TypeScript / React), Manifest V3 & V2, Chrome / Brave / Edge / Firefox / Safari |
+| Gestion des paquets | Bun 1.4+ (workspaces natifs, `bun.lock` commité) |
 | Base locale | SQLCipher (via `rusqlite`) + migrations SQL versionnées |
 | Cryptographie | Argon2id (KDF), XChaCha20-Poly1305 (AEAD), `zeroize`, `OsRng` |
 | Audit | `zxcvbn` (offline) + HIBP *k-Anonymity* |
@@ -143,7 +144,8 @@ Un **binaire unique Rust (`akooti`)** embarque l'interface GUI, le daemon, le po
 ```text
 akooti/
 ├── Cargo.toml                     # Workspace Rust (crates/* + src-tauri)
-├── pnpm-workspace.yaml            # Workspace JS (apps/*, packages/*)
+├── package.json                   # Workspace Bun (apps/*, packages/*)
+├── bun.lock                       # Lockfile Bun (commité)
 ├── docs/                          # Architecture, fonctionnalités, règles, schémas SQL
 ├── skills/akooti/SKILL.md         # Guide d'usage MCP/CLI pour les agents
 │
@@ -211,7 +213,7 @@ Exemple de configuration client :
 ### Prérequis
 
 - Rust 1.90+ et Cargo
-- Node.js 22+ et pnpm 10+
+- Bun 1.4+ (runtime, gestionnaire de paquets et workspaces)
 - Dépendances système Tauri v2 ([guide officiel](https://tauri.app/start/prerequisites/))
 - Une toolchain SQLCipher (ou l'option `bundled-sqlcipher` du crate `rusqlite`)
 
@@ -220,19 +222,19 @@ Exemple de configuration client :
 ```bash
 git clone https://github.com/STIFLEUR390/akooti.git
 cd akooti
-pnpm install
-pnpm tauri dev
+bun install
+bun run tauri dev
 ```
 
 ### Commandes usuelles
 
 ```bash
-pnpm tauri dev            # Application desktop en mode développement
-pnpm tauri build          # Binaire + installeurs
-pnpm --filter desktop dev # Frontend seul (navigateur)
-pnpm --filter extension dev    # Extension WXT (HMR)
-pnpm --filter extension build  # Build multi-navigateurs
-cargo test --workspace    # Tests unitaires du cœur métier
+bun run tauri dev              # Application desktop en mode développement
+bun run tauri build            # Binaire + installeurs
+bun run --filter desktop dev       # Frontend seul (navigateur)
+bun run --filter extension dev     # Extension WXT (HMR)
+bun run --filter extension build   # Build multi-navigateurs
+cargo test --workspace         # Tests unitaires du cœur métier
 cargo clippy --workspace --all-targets
 ```
 
@@ -267,14 +269,14 @@ Le dépôt est prévu pour être piloté par le [MCP Server Tauri](https://githu
    ```
 
 2. Activer `withGlobalTauri` dans `src-tauri/tauri.conf.json` et ajouter `"mcp-bridge:default"` aux permissions de `src-tauri/capabilities/default.json`.
-3. Lancer `pnpm tauri dev`, puis connecter une session (`driver_session`, port `9223`).
+3. Lancer `bun run tauri dev`, puis connecter une session (`driver_session`, port `9223`).
 
 Une fois connecté, l'agent peut prendre des screenshots du webview, inspecter le DOM, exécuter des commandes IPC, suivre le trafic IPC et lire les logs console.
 
 ### Qualité
 
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`
-- `pnpm lint`, `pnpm typecheck`, `pnpm test`
+- `bun run lint`, `bun run typecheck`, `bun run test` (ou `bun --filter '*' test`)
 - Les règles de sécurité de `docs/regles.md` sont **non négociables** : toute PR qui expose un secret dans une réponse MCP est refusée.
 
 ## Feuille de route
