@@ -297,6 +297,7 @@ Le détail exécutable vit dans le projet Kaneo **AKO — Akooti**.
 - [`docs/fonctionalites.md`](./docs/fonctionalites.md) — périmètre fonctionnel complet
 - [`docs/regles.md`](./docs/regles.md) — règles de sécurité, d'architecture et de phasage
 - [`docs/schema.md`](./docs/schema.md) — schéma SQLCipher local et schéma Supabase E2EE
+- [`docs/adr/`](./docs/adr/) — décisions d'architecture (monorepo, stockage, transport MCP)
 
 ## Contribuer
 
@@ -305,6 +306,10 @@ Le détail exécutable vit dans le projet Kaneo **AKO — Akooti**.
 3. Respecter `docs/regles.md` — en particulier les invariants Zero-Leak et `zeroize`.
 4. Ajouter les tests du cœur métier dans `crates/akooti-core`.
 5. Ouvrir une Pull Request avec une description du risque sécurité.
+
+Le détail du processus (prérequis, branches, commits, checklist sécurité) est
+dans [`CONTRIBUTING.md`](./CONTRIBUTING.md). Les vulnérabilités se signalent en
+privé via les GitHub Security Advisories, jamais en issue publique.
 
 ## Licence
 

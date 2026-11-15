@@ -1,0 +1,32 @@
+name: Feature request
+description: Proposer une fonctionnalité dans le périmètre d'Akooti
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problème à résoudre
+      description: Décrivez le besoin réel, pas seulement la solution souhaitée.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Solution proposée
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Périmètre
+      description: Vérifiez la compatibilité avec docs/regles.md §4 (pas de backend propriétaire, pas d'IA embarquée, pas de fichiers lourds).
+      options:
+        - label: La proposition reste local-first et Zero-Knowledge.
+          required: true
+        - label: Elle n'expose aucun secret aux agents / LLM.
+          required: true

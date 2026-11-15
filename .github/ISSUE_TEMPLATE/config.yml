@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Signaler une vulnérabilité
+    url: https://github.com/STIFLEUR390/akooti/security/advisories/new
+    about: Rapport privé — n'ouvrez pas d'issue publique pour un problème de sécurité.
+  - name: Documentation
+    url: https://github.com/STIFLEUR390/akooti/tree/main/docs
+    about: Architecture, fonctionnalités, règles et schémas.
