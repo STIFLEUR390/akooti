@@ -74,7 +74,7 @@ Akooti renverse le modèle :
 - **Sync temps réel Supabase (BYO)** — Zero-Knowledge, Last-Write-Wins, tombstones, un enregistrement chiffré par objet.
 - **Sauvegardes programmées toutes les 1 h** — snapshots `.akooti` chiffrés vers dossier local / NAS, S3 (AWS, R2, MinIO, Wasabi) et Google Drive (OAuth2), avec rétention configurable.
 - **Santé du coffre (offline)** — score `zxcvbn`, détection des réutilisations et de l'ancienneté.
-- **Fuites sans fuite** — vérification HIBP par *k-Anonymity* : seuls les 5 premiers caractères du SHA-1 quittent la machine.
+- **Fuites sans fuite** — vérification HIBP par _k-Anonymity_ : seuls les 5 premiers caractères du SHA-1 quittent la machine.
 
 ## Architecture
 
@@ -125,19 +125,19 @@ Un **binaire unique Rust (`akooti`)** embarque l'interface GUI, le daemon, le po
 
 ## Stack technique
 
-| Domaine | Choix |
-| --- | --- |
-| Application desktop | Tauri v2 (Rust + React + TypeScript + Tailwind CSS) |
-| CLI / daemon | `tauri-plugin-cli`, `interprocess` (Unix Socket / Named Pipe), tray |
-| Extension | WXT (TypeScript / React), Manifest V3 & V2, Chrome / Brave / Edge / Firefox / Safari |
-| Gestion des paquets | Bun 1.4+ (workspaces natifs, `bun.lock` commité) |
-| Base locale | SQLCipher (via `rusqlite`) + migrations SQL versionnées |
-| Cryptographie | Argon2id (KDF), XChaCha20-Poly1305 (AEAD), `zeroize`, `OsRng` |
-| Audit | `zxcvbn` (offline) + HIBP *k-Anonymity* |
-| Sync | Supabase Realtime (WebSocket) + RLS stricte, payloads E2EE |
-| Sauvegardes | Cron interne, local / S3 (S3-compatible) / Google Drive OAuth2 |
-| MCP | SDK Rust `rmcp` (transport stdio) |
-| Tests app Tauri | [MCP Server Tauri](https://github.com/hypothesi/mcp-server-tauri) (plugin `tauri-plugin-mcp-bridge`) |
+| Domaine             | Choix                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| Application desktop | Tauri v2 (Rust + React + TypeScript + Tailwind CSS)                                                  |
+| CLI / daemon        | `tauri-plugin-cli`, `interprocess` (Unix Socket / Named Pipe), tray                                  |
+| Extension           | WXT (TypeScript / React), Manifest V3 & V2, Chrome / Brave / Edge / Firefox / Safari                 |
+| Gestion des paquets | Bun 1.4+ (workspaces natifs, `bun.lock` commité)                                                     |
+| Base locale         | SQLCipher (via `rusqlite`) + migrations SQL versionnées                                              |
+| Cryptographie       | Argon2id (KDF), XChaCha20-Poly1305 (AEAD), `zeroize`, `OsRng`                                        |
+| Audit               | `zxcvbn` (offline) + HIBP _k-Anonymity_                                                              |
+| Sync                | Supabase Realtime (WebSocket) + RLS stricte, payloads E2EE                                           |
+| Sauvegardes         | Cron interne, local / S3 (S3-compatible) / Google Drive OAuth2                                       |
+| MCP                 | SDK Rust `rmcp` (transport stdio)                                                                    |
+| Tests app Tauri     | [MCP Server Tauri](https://github.com/hypothesi/mcp-server-tauri) (plugin `tauri-plugin-mcp-bridge`) |
 
 ## Structure du dépôt
 
@@ -169,15 +169,15 @@ akooti/
 
 ## Modèle de sécurité
 
-| Menace | Contre-mesure |
-| --- | --- |
-| LLM qui lit un secret | Les tools MCP ne renvoient que des métadonnées ; l'injection est aveugle |
-| Secret en RAM après usage | `zeroize::Zeroizing<T>` systématique + verrouillage auto (15 min / veille) |
-| Lecture du socket IPC par un autre utilisateur | Socket `chmod 600` / ACL Windows, pas de HTTP local |
-| Exfiltration côté cloud | E2EE client XChaCha20-Poly1305 ; le serveur ne voit que `ciphertext` + `nonce` |
-| Jeton MCP trop permissif | Scopes granulaires + liste blanche de `folder_id` + TTL + audit |
-| Fichier d'import en clair laissé sur le disque | Proposition d'effacement sécurisé après commit SQLCipher |
-| Presse-papiers qui fuit | Effacement automatique après 30 s |
+| Menace                                         | Contre-mesure                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| LLM qui lit un secret                          | Les tools MCP ne renvoient que des métadonnées ; l'injection est aveugle       |
+| Secret en RAM après usage                      | `zeroize::Zeroizing<T>` systématique + verrouillage auto (15 min / veille)     |
+| Lecture du socket IPC par un autre utilisateur | Socket `chmod 600` / ACL Windows, pas de HTTP local                            |
+| Exfiltration côté cloud                        | E2EE client XChaCha20-Poly1305 ; le serveur ne voit que `ciphertext` + `nonce` |
+| Jeton MCP trop permissif                       | Scopes granulaires + liste blanche de `folder_id` + TTL + audit                |
+| Fichier d'import en clair laissé sur le disque | Proposition d'effacement sécurisé après commit SQLCipher                       |
+| Presse-papiers qui fuit                        | Effacement automatique après 30 s                                              |
 
 Règles détaillées : [`docs/regles.md`](./docs/regles.md).
 
@@ -185,13 +185,13 @@ Règles détaillées : [`docs/regles.md`](./docs/regles.md).
 
 Chaque jeton est limité à un ou plusieurs dossiers et à des permissions explicites.
 
-| Outil | Rôle | Permission |
-| --- | --- | --- |
-| `vault_search` | Recherche par titre / URL / identifiant — **métadonnées seules** | `read_metadata` |
-| `vault_blind_autofill` | Remplit un formulaire via l'extension WXT avec des sélecteurs CSS/JS fournis | `blind_fill` |
-| `vault_cdp_autofill` | Remplit un navigateur piloté par IA via Chrome DevTools Protocol | `blind_fill` |
-| `vault_create_and_fill` | Génère un mot de passe, l'enregistre (dossier `Agents & MCP`) et remplit l'inscription | `create_and_fill` |
-| `vault_exec` | Lance une commande avec les secrets injectés en variables d'environnement, logs masqués | `exec_env` |
+| Outil                   | Rôle                                                                                    | Permission        |
+| ----------------------- | --------------------------------------------------------------------------------------- | ----------------- |
+| `vault_search`          | Recherche par titre / URL / identifiant — **métadonnées seules**                        | `read_metadata`   |
+| `vault_blind_autofill`  | Remplit un formulaire via l'extension WXT avec des sélecteurs CSS/JS fournis            | `blind_fill`      |
+| `vault_cdp_autofill`    | Remplit un navigateur piloté par IA via Chrome DevTools Protocol                        | `blind_fill`      |
+| `vault_create_and_fill` | Génère un mot de passe, l'enregistre (dossier `Agents & MCP`) et remplit l'inscription  | `create_and_fill` |
+| `vault_exec`            | Lance une commande avec les secrets injectés en variables d'environnement, logs masqués | `exec_env`        |
 
 Exemple de configuration client :
 
@@ -281,13 +281,13 @@ Une fois connecté, l'agent peut prendre des screenshots du webview, inspecter l
 
 ## Feuille de route
 
-| Phase | Contenu |
-| --- | --- |
-| **0 — Fondations** | Monorepo, workspace Rust/TS, CI, conventions, schémas SQL, bridge MCP Tauri |
+| Phase                        | Contenu                                                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **0 — Fondations**           | Monorepo, workspace Rust/TS, CI, conventions, schémas SQL, bridge MCP Tauri                                                                                              |
 | **1 — Noyau & coffre local** | `akooti-core` (Argon2id, XChaCha20, SQLCipher, multi-dossiers, générateur, TOTP), UI desktop minimale, importateurs Buttercup / Bitwarden / Proton + routage `Dev Local` |
-| **2 — Pont IA, CLI & MCP** | `tauri-plugin-cli`, daemon IPC `interprocess`, serveur MCP, jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec` |
-| **3 — Extension & audit** | Native Messaging, injection aveugle par sélecteurs, passkeys `MAIN` world, tableau de bord Santé du Coffre (zxcvbn + HIBP) |
-| **4 — Sync & réversibilité** | Supabase Realtime E2EE, sauvegardes Cron (Local / S3 / Drive), export d'urgence, durcissement et packaging |
+| **2 — Pont IA, CLI & MCP**   | `tauri-plugin-cli`, daemon IPC `interprocess`, serveur MCP, jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                     |
+| **3 — Extension & audit**    | Native Messaging, injection aveugle par sélecteurs, passkeys `MAIN` world, tableau de bord Santé du Coffre (zxcvbn + HIBP)                                               |
+| **4 — Sync & réversibilité** | Supabase Realtime E2EE, sauvegardes Cron (Local / S3 / Drive), export d'urgence, durcissement et packaging                                                               |
 
 Le détail exécutable vit dans le projet Kaneo **AKO — Akooti**.
 

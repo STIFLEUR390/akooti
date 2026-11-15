@@ -1,0 +1,36 @@
+{
+  "name": "akooti",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "bun@1.4.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @akooti/desktop dev",
+    "dev:extension": "bun run --filter @akooti/extension dev",
+    "build": "bun run --filter '*' build",
+    "lint": "eslint .",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "tauri": "tauri"
+  },
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}
