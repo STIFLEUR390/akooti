@@ -1,0 +1,20 @@
+[package]
+name = "akooti"
+description = "Akooti desktop app, daemon, CLI and MCP entrypoint"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "akooti_lib"
+
+[[bin]]
+name = "akooti"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]

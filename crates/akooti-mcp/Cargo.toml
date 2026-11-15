@@ -1,0 +1,11 @@
+[package]
+name = "akooti-mcp"
+description = "Akooti MCP server and Zero-Leak injection engines"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

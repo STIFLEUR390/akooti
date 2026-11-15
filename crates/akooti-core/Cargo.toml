@@ -1,0 +1,13 @@
+[package]
+name = "akooti-core"
+description = "Akooti core: crypto, SQLCipher storage, routing, audit and imports (no UI dependencies)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
