@@ -1,61 +1,78 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Layout and boundaries
 
-Akooti is a Rust and Bun monorepo. `crates/akooti-core` contains pure business
-logic and must not depend on Tauri, WebView, or React. `crates/akooti-mcp`
-contains MCP and blind-injection code. `src-tauri` holds the desktop shell,
-CLI/daemon, and IPC adapters. The React/Vite UI lives in `apps/desktop`, the WXT
-extension in `apps/extension`, and shared TypeScript contracts in
-`packages/shared`. Put architecture decisions in `docs/adr/` and repository
-documentation in `docs/`.
+- `crates/akooti-core` — pure vault logic (crypto, SQLCipher, routing, imports).
+  It must never import Tauri, WebView, or React; keep it unit-testable and
+  portable.
+- `crates/akooti-mcp` — MCP server and blind-injection engines.
+- `src-tauri` — desktop shell only: Tauri builder, capabilities, CLI/daemon/IPC
+  adapters. Business logic belongs in the crates.
+- `apps/desktop` (React/Vite), `apps/extension` (WXT), `packages/shared`
+  (domain types + wire protocols). Import shared code as `@akooti/shared`: it
+  ships raw `.ts` via `exports`, so there is no build step. Vite aliases it in
+  `apps/desktop/vite.config.ts`.
+- Design specs live in `docs/*.md`; decisions in `docs/adr/`.
 
-## Build, Test, and Development Commands
-
-Use Rust 1.90+, Bun 1.4+, and the Tauri system dependencies listed in
-`CONTRIBUTING.md`.
+## Commands
 
 ```bash
-bun install                    # Install workspace dependencies
-bun run tauri dev              # Run the desktop app
-bun run dev:extension          # Run the extension with HMR
-bun run build                  # Build desktop and extension packages
-bun run lint                   # Run ESLint
-bun run format:check           # Check Prettier formatting
-bun run typecheck              # Type-check every TypeScript package
-bun test                       # Run bun:test suites
-cargo fmt --all --check        # Check Rust formatting
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace         # Run all Rust tests
+bun install                     # Bun workspaces (bun.lock is committed)
+bun run tauri dev               # desktop app + debug MCP bridge
+bun run dev:extension           # WXT HMR
+bun run build                   # desktop + extension
+bun run lint                    # ESLint (flat config)
+bun run format:check            # Prettier (ignores docs/ and bun.lock)
+bun run typecheck               # runs `wxt prepare` first, then tsc everywhere
+bun test                        # all bun:test suites
+bun test packages/shared/src/models.test.ts   # one suite
+cargo test -p akooti-core       # core only, no Tauri system deps needed
+cargo test -p akooti-core <name>  # one Rust test
 ```
 
-## Coding Style & Naming Conventions
+- Workspace package names are scoped: `bun run --filter @akooti/desktop dev`.
+  A bare `--filter desktop` matches nothing and exits 0 — a silent no-op.
+- CI runs `bun install --frozen-lockfile` and cargo with `--locked`: commit
+  `bun.lock` and `Cargo.lock` whenever dependencies change.
+- CI order per job: lint → format:check → typecheck → test → build.
 
-Rust uses edition 2024, four-space indentation, `rustfmt` with a 100-column
-width, and Clippy warnings as errors. Avoid `unsafe`, `unwrap`, and `expect`
-outside tests. Use `snake_case` for Rust functions and modules and
-`PascalCase` for types. TypeScript uses strict checking, two-space indentation,
-Prettier, ESLint, and explicit `import type`; use `camelCase` for values and
-`PascalCase` for types and React components.
+## Tauri specifics
 
-## Testing Guidelines
+- Tauri system deps are listed in `CONTRIBUTING.md` (Fedora and Ubuntu).
+  Without `webkit2gtk-4.1`/`gtk3` devel, `cargo clippy --workspace`,
+  `cargo build --workspace`, and `bun run tauri dev` fail; use
+  `cargo test -p akooti-core` for core work and treat CI as the compile gate.
+- `bun run tauri build` triggers `beforeBuildCommand`, which builds
+  `apps/desktop` first. `frontendDist` in `src-tauri/tauri.conf.json` is
+  relative to `src-tauri/`, not the repo root (`../apps/desktop/dist`).
+- The MCP bridge (`tauri-plugin-mcp-bridge`) is compiled in debug builds only,
+  listens on `127.0.0.1:9223`, and needs `withGlobalTauri: true` plus the
+  `mcp-bridge:default` capability. After `bun run tauri dev`, connect with
+  `driver_session`; screenshots/DOM/IPC tools then target window `main`.
+- `.wxt/` and `apps/desktop/dist/` are generated and gitignored; never edit
+  them. Extension types require `wxt prepare` (the `typecheck` script does it).
 
-Place TypeScript tests beside their source as `*.test.ts`; Rust tests belong in
-the owning crate. Add coverage for core business logic and a non-regression test
-for every security fix. No numeric coverage threshold is configured.
+## Style
 
-## Commit & Pull Request Guidelines
+- Rust: edition 2024, resolver 3, 100 columns, four spaces. `unsafe` is
+  forbidden, `unwrap` is denied, `expect` warns; tests are exempt via
+  `clippy.toml`.
+- TypeScript: strict plus `noUncheckedIndexedAccess`; use `import type`, two
+  spaces, `PascalCase` components.
+- Conventional Commits (`fix(mcp): ...`). PRs must fill the security checklist
+  and link the Kaneo task.
 
-Use Conventional Commits, such as `fix(mcp): reject leaked secrets`, and branch
-names such as `feat/...`, `fix/...`, or `docs/...`. Rebase on `main` and keep
-each commit coherent. Pull requests must describe the change, link the issue or
-Kaneo task, complete the security checklist, and list the commands run. Include
-UI evidence when behavior changes.
+## Security invariants
 
-## Security & Configuration
+- No password, key, TOTP code, or decrypted value in MCP responses, errors,
+  logs, snapshots, or committed fixtures.
+- Any secret held in Rust goes through `zeroize::Zeroizing<T>`.
+- Tokens, audit logs, and backup config stay local; never sync them.
+- Local config goes in `.env.local` (gitignored); start from `.env.example`.
+  Report vulnerabilities privately via GitHub Security Advisories.
 
-Never commit passwords, keys, TOTP codes, decrypted vault data, or screenshots
-containing secrets. Local configuration belongs in `.env.local`; start from
-`.env.example`. Rust code handling secrets must use `zeroize::Zeroizing<T>`,
-and MCP responses must never expose decrypted values. Follow `docs/regles.md`
-and report vulnerabilities privately through GitHub Security Advisories.
+## Task tracking
+
+Kaneo project "Akooti" — workspace `GAiYlKA3Nr2yEh3Ea40IY0f0tvK4rjQ0`, project
+`ql4kabfti5m3hlbofdlb5bek`. Tasks carry acceptance criteria and doc references;
+update their status/comment as part of each change.
