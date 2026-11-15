@@ -16,6 +16,55 @@ target
 # rustc will dump stack traces when hitting an internal compiler error to PWD
 rustc-ice-*.txt
 
+# Node / pnpm / frontend
+node_modules/
+.pnpm-store/
+pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+dist/
+build/
+coverage/
+
+# Vite / WXT
+.vite/
+.output/
+.wxt/
+.stats.html
+
+# Tauri
+src-tauri/gen/
+src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Akooti runtime artifacts (vaults, backups, exports)
+*.akooti
+*.bcup
+*.kdbx
+*.1pux
+*.sqlcipher
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+exports/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
