@@ -1,32 +1,145 @@
-import { SYSTEM_FOLDERS } from "@akooti/shared";
+import { useCallback, useEffect, useState } from "react";
+
+import { Toasts } from "./components/Toasts";
+import { useToasts } from "./hooks/useToasts";
+import { api, toIpcError } from "./lib/ipc";
+import type { BiometricsStatus, BuildInfo } from "./lib/ipc";
+import { UnlockPage } from "./pages/UnlockPage";
+import { VaultPage } from "./pages/VaultPage";
+
+type Phase = "loading" | "locked" | "unlocked";
 
 /**
- * Placeholder shell. The vault UI (unlock screen, sidebar, item detail,
- * generator, import wizard) lands in phase 4.
+ * Application root.
+ *
+ * Owns only what must survive a lock/unlock cycle: the theme is inside the
+ * vault shell, the session state and the toasts live here. Everything secret
+ * dies with {@link VaultPage}, so locking unmounts the whole unlocked tree.
  */
 export function App() {
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [hasVault, setHasVault] = useState(false);
+  const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [biometrics, setBiometrics] = useState<BiometricsStatus | null>(null);
+  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
+  const { toasts, dismiss, success, failure } = useToasts();
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const status = await api.vaultStatus();
+      setHasVault(status.hasVault);
+      setAutoLockMinutes(status.autoLockMinutes);
+      setPhase(status.status === "unlocked" ? "unlocked" : "locked");
+    } catch (caught) {
+      setError(toIpcError(caught).message);
+      setPhase("locked");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+    api
+      .biometricsStatus()
+      .then(setBiometrics)
+      .catch(() => setBiometrics(null));
+    api
+      .buildInfo()
+      .then(setBuildInfo)
+      .catch(() => setBuildInfo(null));
+  }, [refreshStatus]);
+
+  const handleUnlock = useCallback(
+    async (password: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await api.unlockVault(password);
+        setPhase("unlocked");
+        setHasVault(true);
+        success("Coffre déverrouillé.");
+        return true;
+      } catch (caught) {
+        const ipc = toIpcError(caught);
+        setError(ipc.message);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [success],
+  );
+
+  const handleCreate = useCallback(
+    async (password: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await api.createVault(password);
+        setPhase("unlocked");
+        setHasVault(true);
+        success("Coffre créé. Il est déverrouillé pour 15 minutes d'inactivité.");
+        return true;
+      } catch (caught) {
+        const ipc = toIpcError(caught);
+        setError(ipc.message);
+        if (ipc.code === "vault_exists") {
+          setHasVault(true);
+        }
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [success],
+  );
+
+  const handleLock = useCallback(() => {
+    void api.lockVault().catch(() => undefined);
+    setPhase("locked");
+    setError(null);
+    success("Coffre verrouillé.");
+    void refreshStatus();
+  }, [refreshStatus, success]);
+
+  const notices = { success, failure };
+
+  if (phase === "loading") {
+    return (
+      <main className="unlock" aria-busy="true">
+        <p className="empty-state">Chargement du coffre…</p>
+      </main>
+    );
+  }
+
+  if (phase === "locked") {
+    return (
+      <>
+        <UnlockPage
+          hasVault={hasVault}
+          busy={busy}
+          error={error}
+          biometrics={biometrics}
+          onUnlock={handleUnlock}
+          onCreate={handleCreate}
+        />
+        <Toasts toasts={toasts} onDismiss={dismiss} />
+      </>
+    );
+  }
+
   return (
-    <main className="shell">
-      <header>
-        <h1>Akooti</h1>
-        <p className="tagline">Coffre-fort local-first pour les agents IA</p>
-      </header>
-
-      <section aria-labelledby="folders-heading">
-        <h2 id="folders-heading">Dossiers système</h2>
-        <ul className="folders">
-          {SYSTEM_FOLDERS.map((folder) => (
-            <li key={folder.id} style={{ borderColor: folder.color }}>
-              <span className="folder-name">{folder.name}</span>
-              <code>{folder.slug}</code>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <footer>
-        <p>Interface en construction — phase 0 (fondations).</p>
-      </footer>
-    </main>
+    <>
+      <VaultPage
+        api={api}
+        notices={notices}
+        toasts={toasts}
+        dismissToast={dismiss}
+        buildInfo={buildInfo}
+        autoLockMinutes={autoLockMinutes}
+        onLock={handleLock}
+      />
+    </>
   );
 }

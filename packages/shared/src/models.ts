@@ -38,14 +38,16 @@ export interface Folder {
 
 export interface ItemUri {
   id: string;
-  itemId: string;
+  /** Only set by the core; the desktop IPC omits it (the item is known). */
+  itemId?: string;
   uri: string;
   matchType: UriMatchType;
 }
 
 export interface CustomField {
   id: string;
-  itemId: string;
+  /** Only set by the core; the desktop IPC omits it (the item is known). */
+  itemId?: string;
   fieldName: string;
   isSecret: boolean;
   sortOrder: number;
@@ -60,8 +62,11 @@ export interface VaultItem {
   selectors: SelectorSet;
   /** zxcvbn score from 0 (weak) to 4 (strong). */
   zxcvbnScore: number | null;
-  /** First 5 characters of the SHA-1 hash, used for k-Anonymity checks. */
-  passwordSha1Prefix: string | null;
+  /**
+   * First 5 characters of the SHA-1 hash, used for k-Anonymity checks.
+   * Never sent to the desktop UI: it is a password-derived value.
+   */
+  passwordSha1Prefix?: string | null;
   isCompromised: boolean;
   passwordUpdatedAt: number | null;
   createdByAgent: string | null;
@@ -75,7 +80,14 @@ export interface VaultItem {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  /** Presence flags only: the UI never receives a ciphertext or a plaintext. */
+  hasPassword?: boolean;
+  hasTotp?: boolean;
+  hasNotes?: boolean;
 }
+
+/** Item fields an explicit user action may reveal. */
+export type SecretField = "password" | "totp" | "notes" | "custom_field";
 
 /**
  * Plaintext secret returned only to the desktop UI after an explicit user
@@ -83,7 +95,7 @@ export interface VaultItem {
  */
 export interface RevealedSecret {
   itemId: string;
-  field: "password" | "totp" | "custom_field";
+  field: SecretField;
   value: string;
   /** Epoch milliseconds after which the UI must hide the value again. */
   expiresAt: number;
@@ -181,6 +193,13 @@ export const SYSTEM_FOLDERS = [
 ] as const;
 
 export type SystemFolderSlug = (typeof SYSTEM_FOLDERS)[number]["slug"];
+
+/** Stable identifier of the Personal system folder. */
+export const PERSONAL_FOLDER_ID = SYSTEM_FOLDERS[0].id;
+/** Stable identifier of the Dev Local system folder. */
+export const DEV_LOCAL_FOLDER_ID = SYSTEM_FOLDERS[1].id;
+/** Stable identifier of the Agents & MCP system folder. */
+export const AGENTS_MCP_FOLDER_ID = SYSTEM_FOLDERS[2].id;
 
 export function isSystemFolder(folder: Pick<Folder, "isSystem">): boolean {
   return folder.isSystem;
