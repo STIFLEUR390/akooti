@@ -14,18 +14,44 @@ use super::query::get;
 pub(crate) fn create(
     connection: &mut Connection,
     master_key: &[u8; KEY_LEN],
-    mut draft: VaultItemDraft,
+    draft: VaultItemDraft,
     now: i64,
 ) -> Result<VaultItem, VaultError> {
-    apply_default_expiry(&mut draft, now);
-    validate_draft(&draft)?;
     let id = Uuid::new_v4().to_string();
     let transaction = connection.transaction()?;
-    insert_row(&transaction, master_key, &id, &draft, now)?;
-    replace_relations(&transaction, master_key, &id, &draft, now)?;
-    crate::routing::apply_to_item(&transaction, &id, now)?;
+    insert_draft(
+        &transaction,
+        master_key,
+        &id,
+        draft,
+        now,
+        InsertOptions { route: true },
+    )?;
     transaction.commit()?;
     get(connection, &id, false)
+}
+
+pub(crate) struct InsertOptions {
+    pub(crate) route: bool,
+}
+
+pub(crate) fn insert_draft(
+    connection: &Connection,
+    master_key: &[u8; KEY_LEN],
+    id: &str,
+    mut draft: VaultItemDraft,
+    now: i64,
+    options: InsertOptions,
+) -> Result<usize, VaultError> {
+    apply_default_expiry(&mut draft, now);
+    validate_draft(&draft)?;
+    insert_row(connection, master_key, id, &draft, now)?;
+    replace_relations(connection, master_key, id, &draft, now)?;
+    if options.route {
+        crate::routing::apply_to_item(connection, id, now)
+    } else {
+        Ok(0)
+    }
 }
 
 pub(crate) fn update(

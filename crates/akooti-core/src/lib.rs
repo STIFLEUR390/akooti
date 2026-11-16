@@ -14,6 +14,7 @@ mod error;
 mod folders;
 mod generator;
 mod header;
+mod importers;
 mod items;
 mod models;
 mod routing;
@@ -32,6 +33,11 @@ pub use generator::{
     GeneratedSecret, PassphraseOptions, PasswordOptions, generate_passphrase, generate_password,
 };
 pub use header::{VaultHeader, VaultPaths};
+pub use importers::{
+    DuplicateMatch, DuplicatePolicy, DuplicateReason, ImportBundle, ImportCleanup, ImportError,
+    ImportFolder, ImportFormat, ImportIssue, ImportIssueKind, ImportItem, ImportOptions,
+    ImportPreview, ImportReport, SecureDeleteReport,
+};
 pub use models::{
     AGENTS_MCP_FOLDER_ID, CustomField, CustomFieldInput, DEV_LOCAL_FOLDER_ID, Folder, FolderDraft,
     ItemFilter, ItemType, ItemUri, ItemUriInput, PERSONAL_FOLDER_ID, RevealedSecret, SecretField,

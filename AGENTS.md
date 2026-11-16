@@ -5,6 +5,9 @@
 - `crates/akooti-core` — pure vault logic (crypto, SQLCipher, generator, TOTP,
   routing, imports). It must never import Tauri, WebView, or React; keep it
   unit-testable and portable.
+- `crates/akooti-core/src/importers/` — format parsers normalize untrusted
+  sources into `ImportBundle`; only the pipeline opens the SQLCipher
+  transaction. Parse failures stay typed and must not echo decrypted values.
 - `crates/akooti-mcp` — MCP server and blind-injection engines.
 - `src-tauri` — desktop shell only: Tauri builder, capabilities, CLI/daemon/IPC
   adapters. Business logic belongs in the crates.
@@ -71,6 +74,9 @@ cargo clippy -p akooti-core --all-targets --locked -- -D warnings
 - No password, key, TOTP code, or decrypted value in MCP responses, errors,
   logs, snapshots, or committed fixtures.
 - Any secret held in Rust goes through `zeroize::Zeroizing<T>`.
+- Import source deletion is opt-in, runs only after the vault transaction
+  commits, overwrites before unlinking, and reports cleanup failures without
+  rolling back an already committed import.
 - Automatic routing may only add `Dev Local` membership through `item_folders`;
   it must never remove an existing folder.
 - Tokens, audit logs, and backup config stay local; never sync them.

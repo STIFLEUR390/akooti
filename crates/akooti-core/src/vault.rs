@@ -133,6 +133,10 @@ impl Vault {
         &self.connection
     }
 
+    pub(crate) fn connection_mut(&mut self) -> &mut Connection {
+        &mut self.connection
+    }
+
     pub(crate) fn master_key(&self) -> &[u8; KEY_LEN] {
         &self.master_key
     }

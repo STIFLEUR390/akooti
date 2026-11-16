@@ -11,6 +11,7 @@ pub fn fixture() -> (TempDir, VaultPaths) {
     (temp, paths)
 }
 
+#[allow(dead_code)]
 pub fn item_draft(title: &str, password: &str, primary_url: &str) -> VaultItemDraft {
     VaultItemDraft {
         item_type: ItemType::Login,

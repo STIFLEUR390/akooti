@@ -90,13 +90,11 @@ pub(crate) fn apply_to_item(
         return Err(VaultError::NotFound);
     }
     let mut candidates = Vec::new();
-    let primary: Option<String> = connection
-        .query_row(
-            "SELECT primary_url FROM vault_items WHERE id = ?1 AND deleted_at IS NULL",
-            [item_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let primary: Option<String> = connection.query_row(
+        "SELECT primary_url FROM vault_items WHERE id = ?1 AND deleted_at IS NULL",
+        [item_id],
+        |row| row.get(0),
+    )?;
     if let Some(primary) = primary {
         candidates.push(primary);
     }

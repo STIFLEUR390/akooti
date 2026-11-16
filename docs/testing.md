@@ -16,6 +16,7 @@ cargo clippy -p akooti-core --all-targets --locked -- -D warnings
 | Générateur | classes de caractères, ambiguïté, EFF Diceware, entropie | `tests/generator_test.rs` |
 | TOTP | vecteurs RFC 6238 SHA-1/SHA-256, skew, secret chiffré | `tests/phase2_vault_test.rs` |
 | Routage | suffixe, host exact, CIDR, regex, faux positifs, rétroactif non destructif | `tests/routing_test.rs` |
+| Imports | Buttercup/Bitwarden chiffrés, Proton/1Password ZIP, KeePass KDBX, CSV navigateurs, aperçu, doublons, rollback, routage et effacement post-commit | `tests/import*_test.rs` |
 
 Les fixtures utilisent des coffres temporaires isolés créés avec `tempfile`.
 Aucune fixture commitée ne contient de secret réel.
