@@ -2,9 +2,9 @@
 
 ## Layout and boundaries
 
-- `crates/akooti-core` — pure vault logic (crypto, SQLCipher, routing, imports).
-  It must never import Tauri, WebView, or React; keep it unit-testable and
-  portable.
+- `crates/akooti-core` — pure vault logic (crypto, SQLCipher, generator, TOTP,
+  routing, imports). It must never import Tauri, WebView, or React; keep it
+  unit-testable and portable.
 - `crates/akooti-mcp` — MCP server and blind-injection engines.
 - `src-tauri` — desktop shell only: Tauri builder, capabilities, CLI/daemon/IPC
   adapters. Business logic belongs in the crates.
@@ -28,6 +28,7 @@ bun test                        # all bun:test suites
 bun test packages/shared/src/models.test.ts   # one suite
 cargo test -p akooti-core       # core only, no Tauri system deps needed
 cargo test -p akooti-core <name>  # one Rust test
+cargo clippy -p akooti-core --all-targets --locked -- -D warnings
 ```
 
 - Workspace package names are scoped: `bun run --filter @akooti/desktop dev`.
@@ -35,6 +36,9 @@ cargo test -p akooti-core <name>  # one Rust test
 - CI runs `bun install --frozen-lockfile` and cargo with `--locked`: commit
   `bun.lock` and `Cargo.lock` whenever dependencies change.
 - CI order per job: lint → format:check → typecheck → test → build.
+- The critical core coverage map and test ownership live in
+  `docs/testing.md`; extend it when a crypto, storage, TOTP, or routing
+  contract gains a new security-critical path.
 
 ## Tauri specifics
 
@@ -67,6 +71,8 @@ cargo test -p akooti-core <name>  # one Rust test
 - No password, key, TOTP code, or decrypted value in MCP responses, errors,
   logs, snapshots, or committed fixtures.
 - Any secret held in Rust goes through `zeroize::Zeroizing<T>`.
+- Automatic routing may only add `Dev Local` membership through `item_folders`;
+  it must never remove an existing folder.
 - Tokens, audit logs, and backup config stay local; never sync them.
 - Local config goes in `.env.local` (gitignored); start from `.env.example`.
   Report vulnerabilities privately via GitHub Security Advisories.

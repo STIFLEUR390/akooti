@@ -130,6 +130,8 @@ fn item_flow_encrypts_secrets_and_preserves_n_to_n_links() {
     assert_eq!(vault.get_item(&item.id).expect("item").folder_ids.len(), 2);
 
     let mut updated = item_draft("Updated", "updated-password");
+    updated.primary_url = Some("https://example.com/login".to_owned());
+    updated.uris.clear();
     updated.folder_ids = vec![AGENTS_MCP_FOLDER_ID.to_owned()];
     let updated_item = vault.update_item(&item.id, updated).expect("update");
     assert_eq!(updated_item.title, "Updated");

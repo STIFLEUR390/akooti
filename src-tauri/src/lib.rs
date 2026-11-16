@@ -51,7 +51,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 event: WindowEvent::Focused(true),
                 ..
             } => runtime.focus_gained(),
-            RunEvent::MainEventsCleared => runtime.enforce_auto_lock(),
+            RunEvent::MainEventsCleared => {
+                runtime.enforce_auto_lock();
+                runtime.run_maintenance();
+            }
             _ => {}
         }
     });

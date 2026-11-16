@@ -7,19 +7,23 @@ use crate::crypto::{EncryptedValue, KEY_LEN, custom_field_aad, encrypt_string, s
 use crate::error::VaultError;
 use crate::models::{CustomFieldInput, ItemUriInput, SecretString, VaultItem, VaultItemDraft};
 
+use super::history::archive_if_changed;
+use super::maintenance::DEFAULT_EPHEMERAL_TTL_SECONDS;
 use super::query::get;
 
 pub(crate) fn create(
     connection: &mut Connection,
     master_key: &[u8; KEY_LEN],
-    draft: VaultItemDraft,
+    mut draft: VaultItemDraft,
     now: i64,
 ) -> Result<VaultItem, VaultError> {
+    apply_default_expiry(&mut draft, now);
     validate_draft(&draft)?;
     let id = Uuid::new_v4().to_string();
     let transaction = connection.transaction()?;
     insert_row(&transaction, master_key, &id, &draft, now)?;
     replace_relations(&transaction, master_key, &id, &draft, now)?;
+    crate::routing::apply_to_item(&transaction, &id, now)?;
     transaction.commit()?;
     get(connection, &id, false)
 }
@@ -34,8 +38,10 @@ pub(crate) fn update(
     validate_draft(&draft)?;
     get(connection, id, false)?;
     let transaction = connection.transaction()?;
+    archive_if_changed(&transaction, master_key, id, draft.password.as_ref(), now)?;
     update_row(&transaction, master_key, id, &draft, now)?;
     replace_relations(&transaction, master_key, id, &draft, now)?;
+    crate::routing::apply_to_item(&transaction, id, now)?;
     transaction.commit()?;
     get(connection, id, false)
 }
@@ -230,5 +236,14 @@ fn validate_draft(draft: &VaultItemDraft) -> Result<(), VaultError> {
     if draft.title.trim().is_empty() {
         return Err(VaultError::InvalidInput("item title is empty"));
     }
+    crate::validation::validate_selectors(&draft.selectors)?;
+    crate::validation::validate_uris(&draft.uris)?;
+    crate::validation::validate_custom_fields(&draft.custom_fields)?;
     Ok(())
+}
+
+fn apply_default_expiry(draft: &mut VaultItemDraft, now: i64) {
+    if draft.created_by_agent.is_some() && draft.expires_at.is_none() {
+        draft.expires_at = now.checked_add(DEFAULT_EPHEMERAL_TTL_SECONDS);
+    }
 }

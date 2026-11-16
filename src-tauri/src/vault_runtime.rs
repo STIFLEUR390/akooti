@@ -59,6 +59,13 @@ impl VaultRuntime {
         self.session().enforce_auto_lock(SystemTime::now());
     }
 
+    /// Runs hourly vault maintenance and reports purge failures.
+    pub fn run_maintenance(&self) {
+        if let Err(error) = self.session().run_maintenance(SystemTime::now()) {
+            tracing::error!(%error, "vault maintenance failed");
+        }
+    }
+
     /// Applies the conservative resume policy: lock on explicit resume, then
     /// enforce the inactivity deadline when focus returns.
     pub fn resume(&self) {

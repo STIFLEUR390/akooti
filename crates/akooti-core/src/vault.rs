@@ -129,6 +129,14 @@ impl Vault {
         &self.paths
     }
 
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
+    pub(crate) fn master_key(&self) -> &[u8; KEY_LEN] {
+        &self.master_key
+    }
+
     /// Returns the configured inactivity timeout.
     pub fn auto_lock_minutes(&self) -> u32 {
         self.auto_lock_minutes
@@ -256,7 +264,7 @@ impl Vault {
     }
 }
 
-fn unix_seconds(time: SystemTime) -> Result<i64, VaultError> {
+pub(crate) fn unix_seconds(time: SystemTime) -> Result<i64, VaultError> {
     let duration = time
         .duration_since(UNIX_EPOCH)
         .map_err(|_| VaultError::InvalidInput("system clock is before Unix epoch"))?;

@@ -24,3 +24,4 @@ tauri-build = { version = "2", features = [] }
 akooti-core = { path = "../crates/akooti-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-mcp-bridge = "0.13"
+tracing = "0.1"
