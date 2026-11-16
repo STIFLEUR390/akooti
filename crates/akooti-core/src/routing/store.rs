@@ -23,6 +23,24 @@ pub(crate) fn list(
         .map_err(VaultError::from)
 }
 
+pub(crate) fn set_enabled(
+    connection: &Connection,
+    id: &str,
+    enabled: bool,
+) -> Result<RoutingRule, VaultError> {
+    let changed = connection.execute(
+        "UPDATE local_routing_rules SET enabled = ?2 WHERE id = ?1",
+        params![id, enabled],
+    )?;
+    if changed == 0 {
+        return Err(VaultError::NotFound);
+    }
+    list(connection, false)?
+        .into_iter()
+        .find(|rule| rule.id == id)
+        .ok_or(VaultError::CorruptVault)
+}
+
 pub(crate) fn apply_retroactively(connection: &Connection, now: i64) -> Result<usize, VaultError> {
     let mut statement = connection
         .prepare("SELECT id, primary_url FROM vault_items WHERE deleted_at IS NULL ORDER BY id")?;

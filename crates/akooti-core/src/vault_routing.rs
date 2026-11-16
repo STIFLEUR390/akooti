@@ -23,6 +23,19 @@ impl Vault {
         routing::insert(self.connection(), input, unix_seconds(SystemTime::now())?)
     }
 
+    /// Enables or disables one routing rule.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VaultError::NotFound`] for an unknown rule.
+    pub fn set_routing_rule_enabled(
+        &mut self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<RoutingRule, VaultError> {
+        routing::set_enabled(self.connection(), id, enabled)
+    }
+
     /// Adds matching local-routing folders to one item without removing folders.
     ///
     /// # Errors

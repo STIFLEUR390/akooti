@@ -23,6 +23,7 @@ mod totp;
 mod validation;
 mod vault;
 mod vault_history;
+mod vault_items;
 mod vault_maintenance;
 mod vault_routing;
 mod vault_totp;
@@ -40,8 +41,9 @@ pub use importers::{
 };
 pub use models::{
     AGENTS_MCP_FOLDER_ID, CustomField, CustomFieldInput, DEV_LOCAL_FOLDER_ID, Folder, FolderDraft,
-    ItemFilter, ItemType, ItemUri, ItemUriInput, PERSONAL_FOLDER_ID, RevealedSecret, SecretField,
-    SecretString, Selectors, UriMatchType, VaultItem, VaultItemDraft, VaultStatus,
+    ItemFilter, ItemMetadataDraft, ItemType, ItemUri, ItemUriInput, PERSONAL_FOLDER_ID,
+    RevealedSecret, SecretField, SecretString, Selectors, UriMatchType, VaultItem, VaultItemDraft,
+    VaultStatus,
 };
 pub use routing::{NewRoutingRule, RoutingPatternType, RoutingRule};
 pub use session::VaultSession;

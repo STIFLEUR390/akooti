@@ -102,6 +102,25 @@ impl Vault {
         self.import_bundle(bundle, options)
     }
 
+    /// Parses a source file and reports duplicates without writing anything.
+    ///
+    /// This is the read-only half of the import wizard: the caller gets counts
+    /// and duplicate candidates, never a parsed secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file cannot be read, when its format is
+    /// unsupported, or when an encrypted source needs a password.
+    pub fn preview_import_file(
+        &self,
+        path: &Path,
+        format: Option<ImportFormat>,
+        password: Option<&SecretString>,
+    ) -> Result<ImportPreview, ImportError> {
+        let bundle = read_bundle(path, format, password)?;
+        self.preview_import(&bundle)
+    }
+
     /// Imports a source file and optionally securely removes it after commit.
     ///
     /// # Errors
@@ -115,13 +134,7 @@ impl Vault {
         password: Option<&SecretString>,
         options: ImportOptions,
     ) -> Result<ImportReport, ImportError> {
-        let metadata = fs::symlink_metadata(path)?;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(ImportError::InvalidSource);
-        }
-        let bytes = Zeroizing::new(fs::read(path)?);
-        let selected = format.unwrap_or_else(|| detect_format(Some(path), bytes.as_slice()));
-        let bundle = parse(selected, bytes.as_slice(), password)?;
+        let bundle = read_bundle(path, format, password)?;
         let mut report = self.import_bundle(bundle, options)?;
         if options.secure_delete_source {
             match secure_delete(path) {
@@ -138,6 +151,21 @@ impl Vault {
         }
         Ok(report)
     }
+}
+
+/// Reads and parses one source file, refusing symlinks and non-files.
+fn read_bundle(
+    path: &Path,
+    format: Option<ImportFormat>,
+    password: Option<&SecretString>,
+) -> Result<ImportBundle, ImportError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(ImportError::InvalidSource);
+    }
+    let bytes = Zeroizing::new(fs::read(path)?);
+    let selected = format.unwrap_or_else(|| detect_format(Some(path), bytes.as_slice()));
+    parse(selected, bytes.as_slice(), password)
 }
 
 fn insert_folders(

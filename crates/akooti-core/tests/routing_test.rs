@@ -94,6 +94,55 @@ fn malformed_candidates_are_ignored_but_missing_items_are_errors() {
     ));
 }
 
+#[test]
+fn routing_rules_can_be_disabled_and_reenabled() {
+    let (_temp, paths) = fixture();
+    let mut vault = Vault::create(&paths, "password").expect("create");
+    let custom = vault
+        .add_routing_rule(NewRoutingRule {
+            pattern: ".internal".to_owned(),
+            pattern_type: RoutingPatternType::Suffix,
+            target_folder_id: DEV_LOCAL_FOLDER_ID.to_owned(),
+            enabled: true,
+        })
+        .expect("rule");
+
+    let disabled = vault
+        .set_routing_rule_enabled(&custom.id, false)
+        .expect("disable");
+    assert!(!disabled.enabled);
+    assert!(
+        vault
+            .routing_rules()
+            .expect("rules")
+            .iter()
+            .any(|rule| rule.id == custom.id && !rule.enabled)
+    );
+
+    let item = vault
+        .create_item(item_draft(
+            "Internal",
+            "password",
+            "http://api.service.internal",
+        ))
+        .expect("item");
+    assert_eq!(vault.apply_routing_rules().expect("apply"), 0);
+    assert_eq!(
+        vault.get_item(&item.id).expect("item").folder_ids,
+        vec![PERSONAL_FOLDER_ID]
+    );
+
+    let enabled = vault
+        .set_routing_rule_enabled(&custom.id, true)
+        .expect("enable");
+    assert!(enabled.enabled);
+    assert_eq!(vault.apply_routing_rules().expect("apply"), 1);
+    assert!(matches!(
+        vault.set_routing_rule_enabled("missing-rule", true),
+        Err(VaultError::NotFound)
+    ));
+}
+
 fn rule(pattern: &str, pattern_type: RoutingPatternType) -> RoutingRule {
     RoutingRule {
         id: "rule".to_owned(),
