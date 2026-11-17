@@ -22,8 +22,8 @@ pub mod socket;
 pub use client::{ClientConfig, DaemonClient};
 pub use framing::{MAX_FRAME_BYTES, read_frame, write_frame};
 pub use protocol::{
-    ExecOutcome, FillOutcome, FillStatus, Handshake, ItemSummary, PROTOCOL_VERSION, Request,
-    Response, ResponseBody, SelectorOverride, VaultStatus,
+    ExecOutcome, FillOutcome, FillPayload, FillStatus, Handshake, ItemSummary, PROTOCOL_VERSION,
+    Request, Response, ResponseBody, SelectorOverride, VaultStatus,
 };
 pub use socket::{SocketError, ensure_socket_dir, socket_path, socket_path_in};
 

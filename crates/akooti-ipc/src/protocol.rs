@@ -5,13 +5,22 @@
 //! carries a plaintext secret towards the client.
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
-/// Protocol version; bumped when a field changes meaning.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Protocol version.
+///
+/// History: `1` was the first shipped shape (variant names camelCase, variant
+/// fields snake_case); `2` renamed the fields to camelCase so one casing rule
+/// covers the whole wire, including the browser extension.
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// One request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "method")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "method"
+)]
 pub enum Request {
     /// Version and capability negotiation.
     Handshake {
@@ -44,6 +53,25 @@ pub enum Request {
         origin: String,
         /// Extra selectors supplied by the agent.
         selectors: Option<SelectorOverride>,
+    },
+    /// Values released to the paired browser extension.
+    ///
+    /// This is the only request that answers with a secret: it exists for the
+    /// extension, which fills a page (or copies a value) the user explicitly
+    /// asked for. The daemon answers it only on a connection that declared
+    /// `client: "native-host"`, only for a token holding `blind_fill`, and only
+    /// when the requested origin matches the item. `akooti mcp` never sends it.
+    VaultExtensionFill {
+        /// Presented token secret.
+        token: String,
+        /// Item to read values from.
+        item_id: String,
+        /// Origin of the page the values are released for.
+        origin: String,
+        /// Selectors supplied by the extension (a capture, for instance).
+        selectors: Option<SelectorOverride>,
+        /// What the extension will do: `fill` or `clipboard` (audit only).
+        target: Option<String>,
     },
     /// Selector-based fill through a CDP endpoint.
     VaultCdpAutofill {
@@ -152,6 +180,8 @@ pub enum ResponseBody {
     },
     /// Injection outcome.
     Fill(FillOutcome),
+    /// Values released to the paired browser extension.
+    ExtensionFill(FillPayload),
     /// Ephemeral account creation.
     Created {
         /// Identifier of the created item.
@@ -264,6 +294,45 @@ impl FillOutcome {
     }
 }
 
+/// Values released to the paired browser extension.
+///
+/// This is the only payload that carries a secret across the local socket. It
+/// is produced exclusively for a connection that declared `client:
+/// "native-host"`, for a token holding `blind_fill`, and for an origin that
+/// matches the item; `akooti mcp` exposes no tool that maps to it
+/// (`docs/regles.md` SEC-1). Values live in [`Zeroizing`] and `Debug` redacts
+/// them, so a stray trace or a log line cannot leak one.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FillPayload {
+    /// Origin the values are released for.
+    pub origin: String,
+    /// Selectors to use: stored on the item, overridden by the caller's.
+    pub selectors: SelectorOverride,
+    /// Account identifier, when the item has one.
+    pub username: Option<Zeroizing<String>>,
+    /// Password, when the item has one.
+    pub password: Option<Zeroizing<String>>,
+    /// Current TOTP code, when the item has a seed.
+    pub totp: Option<Zeroizing<String>>,
+}
+
+impl std::fmt::Debug for FillPayload {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn presence(value: &Option<Zeroizing<String>>) -> Option<&'static str> {
+            value.as_ref().map(|_| "<set>")
+        }
+        formatter
+            .debug_struct("FillPayload")
+            .field("origin", &self.origin)
+            .field("selectors", &self.selectors)
+            .field("username", &presence(&self.username))
+            .field("password", &presence(&self.password))
+            .field("totp", &presence(&self.totp))
+            .finish()
+    }
+}
+
 /// Result of `vault_exec`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,7 +354,7 @@ pub struct ExecOutcome {
 #[cfg(test)]
 mod tests {
     use super::{
-        FillOutcome, FillStatus, PROTOCOL_VERSION, Request, Response, ResponseBody,
+        FillOutcome, FillPayload, FillStatus, PROTOCOL_VERSION, Request, Response, ResponseBody,
         SelectorOverride,
     };
 
@@ -341,5 +410,73 @@ mod tests {
         assert_eq!(outcome.status, FillStatus::Unavailable);
         assert!(outcome.fields_filled.is_empty());
         assert!(!outcome.submitted);
+    }
+
+    #[test]
+    fn the_extension_wire_shape_is_stable() {
+        // `apps/extension/lib/native/protocol.ts` speaks these exact shapes.
+        let request = Request::VaultExtensionFill {
+            token: "ak_mcp_probe".to_owned(),
+            item_id: "item-1".to_owned(),
+            origin: "https://app.example.test".to_owned(),
+            selectors: Some(SelectorOverride {
+                password: Some("#pass".to_owned()),
+                ..SelectorOverride::default()
+            }),
+            target: Some("fill".to_owned()),
+        };
+        let encoded: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).expect("encode"))
+                .expect("decode");
+        assert_eq!(
+            encoded,
+            serde_json::json!({
+                "method": "vaultExtensionFill",
+                "token": "ak_mcp_probe",
+                "itemId": "item-1",
+                "origin": "https://app.example.test",
+                "selectors": {
+                    "username": null,
+                    "password": "#pass",
+                    "totp": null,
+                    "submit": null,
+                },
+                "target": "fill",
+            })
+        );
+
+        let response = Response::ok(ResponseBody::ExtensionFill(FillPayload {
+            origin: "https://app.example.test".to_owned(),
+            selectors: SelectorOverride {
+                username: Some("#email".to_owned()),
+                ..SelectorOverride::default()
+            },
+            username: Some("agent@example.test".to_owned().into()),
+            password: Some("s3cret-value".to_owned().into()),
+            totp: None,
+        }));
+        let encoded: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&response).expect("encode"))
+                .expect("decode");
+        assert_eq!(encoded["kind"], "extensionFill");
+        assert_eq!(encoded["protocolVersion"], PROTOCOL_VERSION);
+        assert_eq!(encoded["password"], "s3cret-value");
+        assert_eq!(encoded["totp"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn a_fill_payload_never_prints_a_value() {
+        let payload = FillPayload {
+            origin: "https://app.example.test".to_owned(),
+            selectors: SelectorOverride::default(),
+            username: Some("agent@example.test".to_owned().into()),
+            password: Some("s3cret-value".to_owned().into()),
+            totp: Some("123456".to_owned().into()),
+        };
+        let rendered = format!("{payload:?}");
+        assert!(rendered.contains("https://app.example.test"));
+        assert!(!rendered.contains("s3cret-value"));
+        assert!(!rendered.contains("123456"));
+        assert!(rendered.contains("<set>"));
     }
 }
