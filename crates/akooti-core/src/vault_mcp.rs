@@ -1,5 +1,8 @@
 use std::time::SystemTime;
 
+use regex::Regex;
+use url::Url;
+
 use crate::error::VaultError;
 use crate::mcp::audit::{self, AuditStatus, McpAction, McpAuditEntry, NewAuditEntry};
 use crate::mcp::store;
@@ -8,7 +11,8 @@ use crate::mcp::token::{
     hash_secret, secret_matches,
 };
 use crate::models::{
-    ItemFilter, ItemType, SecretField, SecretString, Selectors, VaultItem, VaultItemDraft,
+    ItemFilter, ItemType, ItemUri, SecretField, SecretString, Selectors, UriMatchType, VaultItem,
+    VaultItemDraft,
 };
 use crate::vault::{Vault, unix_seconds};
 
@@ -22,6 +26,23 @@ pub struct McpFillPlan {
     /// Password, when stored.
     pub password: Option<SecretString>,
     /// Current TOTP code (not the seed).
+    pub totp: Option<SecretString>,
+}
+
+/// Values released to the paired browser extension for one origin.
+///
+/// Debug prints the origin and the presence of each value, never a value.
+#[derive(Debug)]
+pub struct ExtensionFill {
+    /// Origin the values are released for.
+    pub origin: String,
+    /// Selectors captured on the item.
+    pub selectors: Selectors,
+    /// Account identifier, when the item has one.
+    pub username: Option<SecretString>,
+    /// Password, when the item has one.
+    pub password: Option<SecretString>,
+    /// Current TOTP code (never the seed), when the item has one.
     pub totp: Option<SecretString>,
 }
 
@@ -283,8 +304,55 @@ impl Vault {
         })
     }
 
-    /// Creates an ephemeral account in the token's folder and returns its plan.
+    /// Releases the values of one item to the paired browser extension.
     ///
+    /// This is the only path that hands a secret to another process; it exists
+    /// for the extension, which fills a page or copies a value after an
+    /// explicit user gesture (`docs/architecture.md` §4.6). The token still
+    /// needs `blind_fill`, the folder allowlist still applies, and the origin
+    /// must be one the item claims: the extension cannot ask for a value on a
+    /// page the item was not saved for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VaultError::Forbidden`] when the scope, the folder or the
+    /// origin does not match, and [`VaultError::NotFound`] for an unknown item.
+    pub fn mcp_extension_fill(
+        &self,
+        principal: &McpPrincipal,
+        item_id: &str,
+        origin: &str,
+        scope: McpScope,
+    ) -> Result<ExtensionFill, VaultError> {
+        let item = self.mcp_authorize(principal, item_id, scope)?;
+        if !origin_matches(origin, item.primary_url.as_deref(), &item.uris) {
+            return Err(VaultError::Forbidden);
+        }
+        let username = item.username.clone().map(SecretString::new);
+        let password = if item.has_password {
+            self.reveal_secret(item_id, SecretField::Password, None)
+                .ok()
+                .map(|secret| secret.value)
+        } else {
+            None
+        };
+        let totp = if item.has_totp {
+            let timestamp = u64::try_from(unix_seconds(SystemTime::now())?).unwrap_or(0);
+            self.generate_totp(item_id, crate::TotpAlgorithm::Sha1, timestamp)
+                .ok()
+        } else {
+            None
+        };
+        Ok(ExtensionFill {
+            origin: origin.to_owned(),
+            selectors: item.selectors.clone(),
+            username,
+            password,
+            totp,
+        })
+    }
+
+    /// Creates an ephemeral account in the token's folder and returns its plan.    ///
     /// # Errors
     ///
     /// Returns [`VaultError::Forbidden`] without `create_and_fill` or when the
@@ -435,4 +503,132 @@ fn record(
         status,
         details,
     })
+}
+
+/// Whether `origin` belongs to the item.
+///
+/// Only `http(s)` origins qualify. The primary URL is compared on its origin
+/// (scheme, host, port — never the path); each extra URI is matched with its
+/// own strategy, which is what makes an item found on `app.example.test` also
+/// usable on `example.test` when it was saved with a `domain` match.
+fn origin_matches(origin: &str, primary_url: Option<&str>, uris: &[ItemUri]) -> bool {
+    let Ok(requested) = Url::parse(origin) else {
+        return false;
+    };
+    if !matches!(requested.scheme(), "http" | "https") {
+        return false;
+    }
+    let requested_host = requested
+        .host_str()
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if requested_host.is_empty() {
+        return false;
+    }
+    let requested_origin = requested.origin();
+    if primary_url
+        .and_then(|value| Url::parse(value).ok())
+        .is_some_and(|primary| primary.origin() == requested_origin)
+    {
+        return true;
+    }
+    uris.iter().any(|entry| match entry.match_type {
+        UriMatchType::Domain => Url::parse(&entry.uri)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_ascii_lowercase))
+            .is_some_and(|host| {
+                requested_host == host || requested_host.ends_with(&format!(".{host}"))
+            }),
+        UriMatchType::Host => Url::parse(&entry.uri)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_owned))
+            .is_some_and(|host| host.eq_ignore_ascii_case(&requested_host)),
+        UriMatchType::StartsWith => origin.starts_with(entry.uri.trim_end_matches('/')),
+        UriMatchType::Exact => Url::parse(&entry.uri).is_ok_and(|exact| {
+            exact.origin() == requested_origin && exact.path() == requested.path()
+        }),
+        UriMatchType::Regex => Regex::new(&entry.uri).is_ok_and(|pattern| pattern.is_match(origin)),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_matches;
+    use crate::models::{ItemUri, UriMatchType};
+
+    fn uri(value: &str, match_type: UriMatchType) -> ItemUri {
+        ItemUri {
+            id: "uri-1".to_owned(),
+            uri: value.to_owned(),
+            match_type,
+        }
+    }
+
+    #[test]
+    fn the_primary_url_matches_on_its_origin_only() {
+        assert!(origin_matches(
+            "https://app.example.test",
+            Some("https://app.example.test/login?next=/"),
+            &[]
+        ));
+        assert!(!origin_matches(
+            "https://app.example.test",
+            Some("https://example.test"),
+            &[]
+        ));
+        assert!(!origin_matches(
+            "http://app.example.test",
+            Some("https://app.example.test"),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn a_domain_uri_covers_subdomains_but_not_lookalikes() {
+        let uris = [uri("https://example.test/login", UriMatchType::Domain)];
+        assert!(origin_matches("https://example.test", None, &uris));
+        assert!(origin_matches("https://app.example.test", None, &uris));
+        assert!(!origin_matches("https://evil-example.test", None, &uris));
+        assert!(!origin_matches("https://example.test.evil", None, &uris));
+    }
+
+    #[test]
+    fn host_and_starts_with_and_exact_follow_their_strategy() {
+        let host = [uri("https://example.test", UriMatchType::Host)];
+        assert!(origin_matches("https://example.test", None, &host));
+        assert!(!origin_matches("https://app.example.test", None, &host));
+
+        let prefix = [uri("https://example.test/app", UriMatchType::StartsWith)];
+        assert!(origin_matches("https://example.test/app", None, &prefix));
+        assert!(!origin_matches("https://example.test", None, &prefix));
+
+        let exact = [uri("https://example.test/app", UriMatchType::Exact)];
+        assert!(origin_matches("https://example.test/app", None, &exact));
+        assert!(!origin_matches("https://example.test/other", None, &exact));
+
+        let regex = [uri(
+            r"^https://(app|www)\.example\.test$",
+            UriMatchType::Regex,
+        )];
+        assert!(origin_matches("https://www.example.test", None, &regex));
+        assert!(!origin_matches("https://evil.example.test", None, &regex));
+        // A malformed pattern never matches instead of failing the request.
+        let broken = [uri("https://(", UriMatchType::Regex)];
+        assert!(!origin_matches("https://example.test", None, &broken));
+    }
+
+    #[test]
+    fn only_http_origins_qualify() {
+        assert!(!origin_matches("file:///etc/passwd", None, &[]));
+        assert!(!origin_matches("chrome-extension://abc", None, &[]));
+        assert!(!origin_matches("not a url", None, &[]));
+        assert!(!origin_matches("https://app.example.test/admin", None, &[]));
+    }
+
+    #[test]
+    fn a_subdomain_uri_cannot_claim_its_parent_origin() {
+        let uris = [uri("https://app.example.test", UriMatchType::Domain)];
+        assert!(origin_matches("https://app.example.test", None, &uris));
+        assert!(!origin_matches("https://example.test", None, &uris));
+    }
 }

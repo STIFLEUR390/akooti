@@ -55,7 +55,7 @@ pub use routing::{NewRoutingRule, RoutingPatternType, RoutingRule};
 pub use session::VaultSession;
 pub use totp::{TotpAlgorithm, generate as generate_totp_code, verify as verify_totp_code};
 pub use vault::Vault;
-pub use vault_mcp::{EphemeralAccount, EphemeralAccountDraft, McpFillPlan};
+pub use vault_mcp::{EphemeralAccount, EphemeralAccountDraft, ExtensionFill, McpFillPlan};
 
 /// Current version of the core crate, as declared in `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
