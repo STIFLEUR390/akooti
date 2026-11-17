@@ -25,9 +25,11 @@ use akooti_core::{
 };
 use akooti_ipc::{
     ExecOutcome, FillOutcome, FillPayload, FillStatus, Handshake, ItemSummary, PROTOCOL_VERSION,
-    Request, Response, ResponseBody, SelectorOverride, VaultStatus, read_frame, socket_path,
-    write_frame,
+    PasskeyCredential, PasskeySignature, Request, Response, ResponseBody, SelectorOverride,
+    VaultStatus, read_frame, socket_path, write_frame,
 };
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use zeroize::Zeroizing;
 
 use crate::vault_runtime::VaultRuntime;
@@ -187,7 +189,7 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
         } => with_principal(runtime, &token, |principal| {
             let items = runtime
                 .with_vault(|vault| vault.mcp_search(principal, &query, limit.clamp(1, 200)))
-                .map_err(|error| denial(runtime, principal, error, "vault_search"))?;
+                .map_err(|error| denial(runtime, principal, error, "vault_search", None))?;
             Ok(ResponseBody::Search {
                 items: items.iter().map(summary).collect(),
             })
@@ -202,7 +204,9 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
             let _ = selectors;
             runtime
                 .with_vault(|vault| vault.mcp_authorize(principal, &item_id, McpScope::BlindFill))
-                .map_err(|error| denial(runtime, principal, error, "blind_autofill"))?;
+                .map_err(|error| {
+                    denial(runtime, principal, error, "blind_autofill", Some(&origin))
+                })?;
             let outcome = inject::native_messaging_fill();
             audit_outcome(
                 runtime,
@@ -240,7 +244,9 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
                 .with_vault(|vault| {
                     vault.mcp_extension_fill(principal, &item_id, &origin, McpScope::BlindFill)
                 })
-                .map_err(|error| denial(runtime, principal, error, "blind_autofill"))?;
+                .map_err(|error| {
+                    denial(runtime, principal, error, "blind_autofill", Some(&origin))
+                })?;
             let merged = inject::merge_selectors(&fill.selectors, selectors.as_ref());
             let payload = FillPayload {
                 origin: fill.origin.clone(),
@@ -278,6 +284,111 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
                 Some(format!("{released} value(s) released for {gesture}")),
             )?;
             Ok(ResponseBody::ExtensionFill(payload))
+        }),
+        Request::VaultPasskeyRegister {
+            token,
+            origin,
+            rp_id,
+            rp_name,
+            user_handle,
+            user_name,
+            challenge,
+        } => with_principal(runtime, &token, |principal| {
+            // A passkey is a credential the vault signs with: only the browser
+            // bridge may ask for one, never an agent connection.
+            if client != ClientKind::NativeHost {
+                let _ = runtime.record_audit(NewAuditEntry {
+                    token_id: Some(principal.token_id.clone()),
+                    action: McpAction::AccessDenied,
+                    target_item_id: None,
+                    target_folder_id: None,
+                    target_origin: Some(origin.clone()),
+                    status: AuditStatus::Denied,
+                    details: Some(
+                        "passkey registration requested outside the browser bridge".to_owned(),
+                    ),
+                });
+                return Err(Response::error("forbidden", "access denied"));
+            }
+            let request = akooti_core::PasskeyRegistration {
+                rp_name,
+                user_handle: decode_base64url(&user_handle, "user handle")?,
+                user_name,
+                challenge: decode_base64url(&challenge, "challenge")?,
+                origin: origin.clone(),
+                rp_id: rp_id.clone(),
+            };
+            let registered = runtime
+                .with_vault(|vault| vault.passkey_register(principal, &request))
+                .map_err(|error| denial(runtime, principal, error, "passkey_use", Some(&origin)))?;
+            record(
+                runtime,
+                principal,
+                McpAction::PasskeyUse,
+                AuditStatus::Success,
+                None,
+                Some(&origin),
+                Some(format!("passkey registered for {rp_id}")),
+            )?;
+            Ok(ResponseBody::PasskeyRegistration(PasskeyCredential {
+                id: encode_base64url(&registered.credential_id),
+                client_data_json: encode_base64url(&registered.client_data_json),
+                attestation_object: encode_base64url(&registered.attestation_object),
+                public_key_algorithm: registered.public_key_algorithm,
+                transports: registered.transports,
+            }))
+        }),
+        Request::VaultPasskeyAssert {
+            token,
+            origin,
+            rp_id,
+            challenge,
+            allow_credentials,
+        } => with_principal(runtime, &token, |principal| {
+            if client != ClientKind::NativeHost {
+                let _ = runtime.record_audit(NewAuditEntry {
+                    token_id: Some(principal.token_id.clone()),
+                    action: McpAction::AccessDenied,
+                    target_item_id: None,
+                    target_folder_id: None,
+                    target_origin: Some(origin.clone()),
+                    status: AuditStatus::Denied,
+                    details: Some(
+                        "passkey assertion requested outside the browser bridge".to_owned(),
+                    ),
+                });
+                return Err(Response::error("forbidden", "access denied"));
+            }
+            let mut credentials = Vec::with_capacity(allow_credentials.len());
+            for credential in &allow_credentials {
+                credentials.push(decode_base64url(credential, "credential id")?);
+            }
+            let request = akooti_core::PasskeyAssertion {
+                origin: origin.clone(),
+                rp_id: rp_id.clone(),
+                challenge: decode_base64url(&challenge, "challenge")?,
+                allow_credentials: credentials,
+            };
+            let signed = runtime
+                .with_vault(|vault| vault.passkey_assert(principal, &request))
+                .map_err(|error| denial(runtime, principal, error, "passkey_use", Some(&origin)))?;
+            // The audit records which site was signed for, never the signature.
+            record(
+                runtime,
+                principal,
+                McpAction::PasskeyUse,
+                AuditStatus::Success,
+                None,
+                Some(&origin),
+                Some(format!("passkey assertion for {rp_id}")),
+            )?;
+            Ok(ResponseBody::PasskeyAssertion(PasskeySignature {
+                id: encode_base64url(&signed.credential_id),
+                client_data_json: encode_base64url(&signed.client_data_json),
+                authenticator_data: encode_base64url(&signed.authenticator_data),
+                signature: encode_base64url(&signed.signature),
+                user_handle: signed.user_handle.as_deref().map(encode_base64url),
+            }))
         }),
         Request::VaultCdpAutofill {
             token,
@@ -331,7 +442,9 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
                         },
                     )
                 })
-                .map_err(|error| denial(runtime, principal, error, "create_and_fill"))?;
+                .map_err(|error| {
+                    denial(runtime, principal, error, "create_and_fill", Some(&url))
+                })?;
             let outcome = inject::cdp_fill(
                 endpoint.as_deref(),
                 &url,
@@ -360,7 +473,7 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientK
         } => with_principal(runtime, &token, |principal| {
             let variables = runtime
                 .with_vault(|vault| vault.mcp_env(principal, &item_id))
-                .map_err(|error| denial(runtime, principal, error, "exec_env"))?;
+                .map_err(|error| denial(runtime, principal, error, "exec_env", None))?;
             let origin = command.join(" ");
             let outcome: ExecOutcome = match exec::run(&command, &variables, timeout_seconds) {
                 Ok(outcome) => {
@@ -401,9 +514,25 @@ fn capabilities() -> Vec<String> {
         "vault_search".to_owned(),
         "cdp_autofill".to_owned(),
         "extension_fill".to_owned(),
+        "passkey_ceremony".to_owned(),
         "create_and_fill".to_owned(),
         "exec_env".to_owned(),
     ]
+}
+
+/// Decodes one base64url field of a WebAuthn ceremony.
+///
+/// The error names the field and never echoes the value: a malformed challenge
+/// is a client bug, not something to copy into a log or an audit row.
+fn decode_base64url(value: &str, field: &'static str) -> Result<Vec<u8>, Response> {
+    URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| Response::error("invalid_input", format!("the {field} is not base64url")))
+}
+
+/// Encodes one binary field of a WebAuthn answer for the extension.
+fn encode_base64url(value: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(value)
 }
 
 fn authenticate(runtime: &VaultRuntime, token: &str) -> Result<McpPrincipal, Response> {
@@ -448,7 +577,7 @@ fn fill_plan(
 ) -> Result<McpFillPlan, Response> {
     runtime
         .with_vault(|vault| vault.mcp_fill_plan(principal, item_id, scope))
-        .map_err(|error| denial(runtime, principal, error, action.as_str()))
+        .map_err(|error| denial(runtime, principal, error, action.as_str(), None))
 }
 
 /// Maps a failed action to a response, and audits a policy refusal.
@@ -460,6 +589,7 @@ fn denial(
     principal: &McpPrincipal,
     error: VaultError,
     action: &'static str,
+    origin: Option<&str>,
 ) -> Response {
     if matches!(error, VaultError::Forbidden) {
         tracing::warn!(action, "MCP action refused by policy");
@@ -468,7 +598,7 @@ fn denial(
             action: McpAction::AccessDenied,
             target_item_id: None,
             target_folder_id: None,
-            target_origin: None,
+            target_origin: origin.map(str::to_owned),
             status: AuditStatus::Denied,
             details: Some(format!("{action} refused by policy")),
         });
@@ -616,8 +746,11 @@ fn response_for(error: VaultError) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{capabilities, response_for};
-    use akooti_core::VaultError;
+    use super::{
+        ClientKind, capabilities, decode_base64url, dispatch, encode_base64url, response_for,
+    };
+    use crate::vault_runtime::VaultRuntime;
+    use akooti_core::{McpAction, McpScope, NewMcpToken, VaultError};
     use akooti_ipc::{PROTOCOL_VERSION, Request, ResponseBody};
 
     #[test]
@@ -626,6 +759,26 @@ mod tests {
         assert!(caps.contains(&"vault_search".to_owned()));
         assert!(!caps.contains(&"blind_autofill".to_owned()));
         assert!(caps.contains(&"cdp_autofill".to_owned()));
+        assert!(caps.contains(&"passkey_ceremony".to_owned()));
+    }
+
+    #[test]
+    fn a_web_authn_field_round_trips_and_a_bad_one_is_refused() {
+        let bytes = [0xfb_u8, 0xff, 0x00, 0x10];
+        let encoded = encode_base64url(&bytes);
+        assert_eq!(encoded, "-_8AEA", "base64url, unpadded, never base64");
+        assert_eq!(
+            decode_base64url(&encoded, "challenge").expect("decode"),
+            bytes
+        );
+
+        // A malformed field is a client bug: the error names the field, and
+        // never repeats what was sent.
+        let error = decode_base64url("pas*un*base64", "challenge").expect_err("refused");
+        let encoded = serde_json::to_string(&error).expect("encode");
+        assert!(encoded.contains("invalid_input"));
+        assert!(encoded.contains("challenge"));
+        assert!(!encoded.contains("pas*un*base64"));
     }
 
     #[test]
@@ -655,5 +808,161 @@ mod tests {
             client: "mcp".to_owned(),
         };
         assert!(matches!(request, Request::Handshake { .. }));
+    }
+
+    /// An unlocked vault holding one `blind_fill` token, as the app would have.
+    fn unlocked_runtime() -> (tempfile::TempDir, VaultRuntime, String) {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let paths = akooti_core::VaultPaths::under_app_data(temp.path());
+        let runtime = VaultRuntime::new(paths);
+        runtime.create("password").expect("create vault");
+        let issued = runtime
+            .with_vault_mut(|vault| {
+                vault.create_mcp_token(NewMcpToken {
+                    name: "Akooti browser extension".to_owned(),
+                    scopes: vec![McpScope::BlindFill],
+                    folder_ids: vec![akooti_core::PERSONAL_FOLDER_ID.to_owned()],
+                    default_create_folder_id: None,
+                    expires_at: None,
+                })
+            })
+            .expect("issue token");
+        (temp, runtime, issued.secret.to_string())
+    }
+
+    fn registration(token: &str) -> Request {
+        Request::VaultPasskeyRegister {
+            token: token.to_owned(),
+            origin: "https://example.test".to_owned(),
+            rp_id: "example.test".to_owned(),
+            rp_name: "Example".to_owned(),
+            user_handle: encode_base64url(&[7_u8; 16]),
+            user_name: "user@example.test".to_owned(),
+            challenge: encode_base64url(&[1_u8; 32]),
+        }
+    }
+
+    /// The whole daemon path, without a socket: policy, base64 and answers.
+    #[test]
+    fn the_browser_bridge_serves_a_whole_ceremony() {
+        let (_temp, runtime, token) = unlocked_runtime();
+
+        let handshake = dispatch(
+            &runtime,
+            Request::Handshake {
+                protocol_version: PROTOCOL_VERSION,
+                client: "native-host".to_owned(),
+            },
+            ClientKind::NativeHost,
+        );
+        assert!(matches!(handshake.body, ResponseBody::Handshake(_)));
+
+        let registered = dispatch(&runtime, registration(&token), ClientKind::NativeHost);
+        let credential = match registered.body {
+            ResponseBody::PasskeyRegistration(credential) => credential,
+            other => panic!("unexpected body: {other:?}"),
+        };
+        assert_eq!(credential.public_key_algorithm, -7, "ES256");
+        assert_eq!(credential.transports, vec!["internal".to_owned()]);
+        assert!(!credential.id.is_empty());
+        assert!(!credential.attestation_object.is_empty());
+        // Nothing but base64url leaves the daemon.
+        assert!(
+            credential
+                .attestation_object
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
+
+        let signed = dispatch(
+            &runtime,
+            Request::VaultPasskeyAssert {
+                token: token.clone(),
+                origin: "https://example.test".to_owned(),
+                rp_id: "example.test".to_owned(),
+                challenge: encode_base64url(&[2_u8; 32]),
+                allow_credentials: vec![credential.id.clone()],
+            },
+            ClientKind::NativeHost,
+        );
+        match signed.body {
+            ResponseBody::PasskeyAssertion(signature) => {
+                assert_eq!(signature.id, credential.id);
+                assert_eq!(signature.user_handle, Some(encode_base64url(&[7_u8; 16])));
+                assert!(!signature.signature.is_empty());
+                assert!(!signature.authenticator_data.is_empty());
+            }
+            other => panic!("unexpected body: {other:?}"),
+        }
+
+        // Two ceremonies, both written to the audit log with the origin, and
+        // neither carrying anything the relying party did not already have.
+        let audit = runtime
+            .with_vault(|vault| vault.mcp_audit_logs(10))
+            .expect("audit log");
+        let passkeys = audit
+            .iter()
+            .filter(|entry| entry.action == McpAction::PasskeyUse)
+            .count();
+        assert_eq!(passkeys, 2);
+        let rendered = format!("{audit:?}");
+        assert!(!rendered.contains(&credential.id));
+    }
+
+    #[test]
+    fn an_agent_connection_cannot_run_a_passkey_ceremony() {
+        let (_temp, runtime, token) = unlocked_runtime();
+
+        // `akooti mcp` never sends this verb, and an accidental cross-wiring
+        // must not be the thing that hands an agent a signing oracle.
+        let refused = dispatch(&runtime, registration(&token), ClientKind::Mcp);
+        match refused.body {
+            ResponseBody::Error { code, .. } => assert_eq!(code, "forbidden"),
+            other => panic!("unexpected body: {other:?}"),
+        }
+
+        let audit = runtime
+            .with_vault(|vault| vault.mcp_audit_logs(10))
+            .expect("audit log");
+        assert!(
+            audit
+                .iter()
+                .any(|entry| entry.action == McpAction::AccessDenied
+                    && entry.target_origin.as_deref() == Some("https://example.test"))
+        );
+        assert!(
+            !audit
+                .iter()
+                .any(|entry| entry.action == McpAction::PasskeyUse)
+        );
+    }
+
+    #[test]
+    fn a_ceremony_for_another_site_is_refused_by_the_daemon() {
+        let (_temp, runtime, token) = unlocked_runtime();
+        let mut stolen = registration(&token);
+        if let Request::VaultPasskeyRegister { origin, .. } = &mut stolen {
+            *origin = "https://bank.test".to_owned();
+        }
+        match dispatch(&runtime, stolen, ClientKind::NativeHost).body {
+            ResponseBody::Error { code, .. } => assert_eq!(code, "invalid_input"),
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_binary_field_that_is_not_base64url_is_refused_before_the_vault() {
+        let (_temp, runtime, token) = unlocked_runtime();
+        let mut broken = registration(&token);
+        if let Request::VaultPasskeyRegister { challenge, .. } = &mut broken {
+            *challenge = "not base64url".to_owned();
+        }
+        match dispatch(&runtime, broken, ClientKind::NativeHost).body {
+            ResponseBody::Error { code, message } => {
+                assert_eq!(code, "invalid_input");
+                assert!(message.contains("challenge"));
+            }
+            other => panic!("unexpected body: {other:?}"),
+        }
     }
 }

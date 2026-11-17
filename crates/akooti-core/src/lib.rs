@@ -18,6 +18,7 @@ mod importers;
 mod items;
 mod mcp;
 mod models;
+mod passkeys;
 mod routing;
 mod session;
 mod totp;
@@ -50,6 +51,10 @@ pub use models::{
     ItemFilter, ItemMetadataDraft, ItemType, ItemUri, ItemUriInput, PERSONAL_FOLDER_ID,
     RevealedSecret, SecretField, SecretString, Selectors, UriMatchType, VaultItem, VaultItemDraft,
     VaultStatus,
+};
+pub use passkeys::{
+    CREDENTIAL_ID_LEN, ES256, PasskeyAssertion, PasskeyRegistration, RegisteredPasskey,
+    SignedAssertion,
 };
 pub use routing::{NewRoutingRule, RoutingPatternType, RoutingRule};
 pub use session::VaultSession;

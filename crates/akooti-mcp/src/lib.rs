@@ -176,6 +176,15 @@ impl AkootiServer {
                 "forbidden",
                 "this payload belongs to the browser extension",
             )),
+            // Same guard for the passkey bodies: a WebAuthn ceremony is driven
+            // by the user's browser, and no tool asks for one. Answering a
+            // refusal keeps an unexpected body from being handed to an agent.
+            ResponseBody::PasskeyRegistration(_) | ResponseBody::PasskeyAssertion(_) => {
+                Ok(tool_error(
+                    "forbidden",
+                    "passkey ceremonies belong to the browser extension",
+                ))
+            }
             ResponseBody::Error { code, message } => Ok(tool_error(&code, &message)),
         }
     }

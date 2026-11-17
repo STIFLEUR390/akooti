@@ -21,6 +21,8 @@ pub enum McpAction {
     CreateAndFill,
     /// Secret injection into a child process environment.
     ExecEnv,
+    /// A WebAuthn ceremony served from a stored credential.
+    PasskeyUse,
     /// A request refused before touching the vault.
     AccessDenied,
 }
@@ -35,6 +37,7 @@ impl McpAction {
             Self::CdpAutofill => "cdp_autofill",
             Self::CreateAndFill => "create_and_fill",
             Self::ExecEnv => "exec_env",
+            Self::PasskeyUse => "passkey_use",
             Self::AccessDenied => "access_denied",
         }
     }
@@ -163,6 +166,7 @@ fn parse_action(value: &str) -> McpAction {
         "cdp_autofill" => McpAction::CdpAutofill,
         "create_and_fill" => McpAction::CreateAndFill,
         "exec_env" => McpAction::ExecEnv,
+        "passkey_use" => McpAction::PasskeyUse,
         "access_denied" => McpAction::AccessDenied,
         _ => McpAction::VaultSearch,
     }

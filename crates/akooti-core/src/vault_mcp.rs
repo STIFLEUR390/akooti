@@ -308,7 +308,7 @@ impl Vault {
     ///
     /// This is the only path that hands a secret to another process; it exists
     /// for the extension, which fills a page or copies a value after an
-    /// explicit user gesture (`docs/architecture.md` §4.6). The token still
+    /// explicit user gesture (`docs/architecture.md` §4.5). The token still
     /// needs `blind_fill`, the folder allowlist still applies, and the origin
     /// must be one the item claims: the extension cannot ask for a value on a
     /// page the item was not saved for.

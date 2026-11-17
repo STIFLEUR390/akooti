@@ -159,7 +159,7 @@ fn encrypt_with_nonce(
     Ok(EncryptedValue { ciphertext, nonce })
 }
 
-fn decrypt_bytes(
+pub(crate) fn decrypt_bytes(
     key: &[u8; KEY_LEN],
     encrypted: &EncryptedValue,
     associated_data: &[u8],
@@ -187,6 +187,14 @@ pub(crate) fn secret_field_aad(item_id: &str, field: &str) -> Vec<u8> {
 
 pub(crate) fn custom_field_aad(item_id: &str, field_id: &str) -> Vec<u8> {
     format!("akooti:v1:item:{item_id}:custom:{field_id}").into_bytes()
+}
+
+/// Associated data of the private key of one passkey.
+///
+/// Binding the ciphertext to the credential id means a row cannot be copied
+/// onto another credential: the tag stops authenticating.
+pub(crate) fn passkey_aad(credential_id: &[u8]) -> Vec<u8> {
+    format!("akooti:v1:passkey:{}", hex::encode(credential_id)).into_bytes()
 }
 
 #[cfg(test)]

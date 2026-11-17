@@ -24,6 +24,7 @@ hex = "0.4"
 hkdf = "0.12"
 hmac = "0.12"
 keepass = { version = "0.17", features = ["save_kdbx4"] }
+p256 = { version = "0.13", features = ["ecdsa"] }
 pbkdf2 = "0.12"
 quick-xml = { version = "0.42", features = ["serde"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
@@ -43,4 +44,8 @@ zeroize = { version = "1", features = ["derive"] }
 zip = { version = "9.6", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+# Verification of the ES256 signatures in `tests/passkey_test.rs`: a test that
+# checked a signature with the code that produced it would prove nothing.
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"
 tempfile = "3"

@@ -24,6 +24,7 @@ tauri-build = { version = "2", features = [] }
 akooti-core = { path = "../crates/akooti-core" }
 akooti-ipc = { path = "../crates/akooti-ipc" }
 akooti-mcp = { path = "../crates/akooti-mcp" }
+base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
