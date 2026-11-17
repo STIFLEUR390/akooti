@@ -19,6 +19,8 @@ mod daemon;
 mod dto;
 mod error;
 mod headless;
+mod native_host;
+mod native_register;
 mod tray;
 mod vault_runtime;
 
@@ -51,6 +53,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         cli::CliMode::NativeHost => {
             std::process::exit(i32::from(headless::run_native_host()));
+        }
+        cli::CliMode::NativeRegister(options) => {
+            let code = headless::run_native_register(&options);
+            std::process::exit(i32::from(code));
         }
         cli::CliMode::Gui => run_gui(),
     }
