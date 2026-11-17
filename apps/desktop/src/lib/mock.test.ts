@@ -243,6 +243,56 @@ describe("generator", () => {
     ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
+  test("tokens: the secret is returned once and never listed", async () => {
+    const api = await unlocked();
+    const issued = await api.createMcpToken({
+      name: "Agent local",
+      scopes: ["read_metadata"],
+      folderIds: [DEV_LOCAL_FOLDER_ID],
+      ttlDays: 30,
+    });
+    expect(issued.secret.startsWith("ak_mcp_")).toBe(true);
+    expect(issued.token.active).toBe(true);
+
+    const listed = await api.listMcpTokens();
+    expect(listed).toHaveLength(1);
+    expect(JSON.stringify(listed)).not.toContain(issued.secret);
+    expect(listed[0]?.tokenPrefix).not.toBe(issued.secret);
+    expect(listed[0]?.folderIds).toEqual([DEV_LOCAL_FOLDER_ID]);
+
+    const revoked = await api.revokeMcpToken(issued.token.id);
+    expect(revoked.active).toBe(false);
+    expect(revoked.revokedAt).not.toBeNull();
+
+    const audit = await api.listMcpAuditLog(10);
+    expect(audit[0]?.details).toBe("jeton créé");
+    expect(JSON.stringify(audit)).not.toContain(issued.secret);
+  });
+
+  test("tokens: creation needs a name, a scope and a folder", async () => {
+    const api = await unlocked();
+    await expect(
+      api.createMcpToken({
+        name: " ",
+        scopes: ["read_metadata"],
+        folderIds: [DEV_LOCAL_FOLDER_ID],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      api.createMcpToken({ name: "Agent", scopes: [], folderIds: [DEV_LOCAL_FOLDER_ID] }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      api.createMcpToken({ name: "Agent", scopes: ["read_metadata"], folderIds: [] }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      api.createMcpToken({
+        name: "Agent",
+        scopes: ["read_metadata"],
+        folderIds: [PERSONAL_FOLDER_ID],
+      }),
+    ).resolves.toBeTruthy();
+  });
+
   test("passphrases respect the word count", async () => {
     const api = createMockApi();
     const phrase = await api.generatePassphrase({ words: 5, separator: ".", capitalize: false });
