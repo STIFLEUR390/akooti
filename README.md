@@ -55,7 +55,8 @@ Le détail par fonction est dans [`docs/fonctionalites.md`](./docs/fonctionalite
 ### Authentification moderne
 
 - ✅ **TOTP intégré** — codes à 6 chiffres, SHA-1 / SHA-256, affichage temps réel, copie rapide et remplissage aveugle par le MCP (CDP).
-- ⚠️ **Passkeys (WebAuthn / FIDO2)** — interception de `navigator.credentials.create()` / `get()` en `world: MAIN` avec un shim injecté sous nonce ; la signature et les clés privées côté coffre restent à faire, la cérémonie retombe donc sur le navigateur (voir [`docs/adr/0008`](./docs/adr/0008-extension-native-messaging.md)).
+- ✅ **Passkeys (WebAuthn / FIDO2)** — le coffre crée et signe les credentials lui-même : clé P-256 chiffrée sous la clé maître, signature ES256, `clientDataJSON` reconstruit à partir de l'origine réelle de la page. Une cérémonie qu'il ne peut pas servir retombe sur le navigateur (voir [`docs/adr/0008`](./docs/adr/0008-extension-native-messaging.md)).
+- ⚠️ **Ce que ces passkeys ne font pas** — aucune attestation (`fmt: "none"`), aucune vérification de l'utilisateur (drapeau `UP` seul) et aucun credential découvrable : un site qui exige `userVerification: "required"` ou `residentKey: "required"` reçoit l'authentificateur du navigateur (voir [`docs/architecture.md`](./docs/architecture.md) §4.6).
 - ⚠️ **Biométrie native** — trait d'union présent (Windows Hello, Touch ID, Linux Polkit / FIDO2), aucun fournisseur branché : l'interface masque le contrôle (voir [`docs/adr/0005`](./docs/adr/0005-biometrie-deverrouillage.md)).
 
 ### Routage & import universel
@@ -248,8 +249,11 @@ Exemple de configuration client :
 - ⚠️ `vault_blind_autofill` répond toujours `unavailable` à un agent : le pont
   ne s'ouvre qu'à une connexion qui s'est annoncée `native-host`. Un agent passe
   par `vault_cdp_autofill`.
-- ⚠️ Les passkeys sont interceptées puis rendues au navigateur : le shim
-  n'a personne à qui demander une signature côté coffre.
+- ⚠️ Les passkeys sont servies par le coffre, mais **sans attestation ni
+  vérification de l'utilisateur** (`fmt: "none"`, drapeau `UP` seul) et jamais
+  comme credentials découvrables : une cérémonie qui exige `UV` ou
+  `residentKey: "required"` est rendue au navigateur
+  ([`docs/architecture.md`](./docs/architecture.md) §4.6).
 
 ## Démarrage rapide
 
@@ -340,16 +344,16 @@ vivent dans un fichier local non versionné, jamais dans ce README.
 
 ## Feuille de route
 
-| Phase                            | Contenu                                                                                                                                                                               | État |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| **0 — Fondations**               | Monorepo Cargo + Bun, CI (format, lint, tests, build desktop), conventions, schémas SQL, bridge MCP Tauri                                                                             | ✅   |
-| **1 — Cryptographie & stockage** | `akooti-core` : Argon2id, XChaCha20-Poly1305, SQLCipher, en-tête d'amorçage, dossiers système, session et verrouillage automatique                                                    | ✅   |
-| **2 — Fonctions du coffre**      | Générateur (mots de passe, passphrases EFF), TOTP, routage `Dev Local`, historique, comptes éphémères                                                                                 | ✅   |
-| **3 — Import universel**         | Buttercup, Bitwarden / Vaultwarden, Proton Pass, KeePass / KeePassXC, 1Password, CSV navigateurs ; aperçu, doublons, effacement de la source                                          | ✅   |
-| **4 — Application desktop**      | Interface Tauri v2 : déverrouillage, coffre, générateur, import, routage, page « Accès IA » ; accessibilité `axe-core`                                                                | ✅   |
-| **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                            | ✅   |
-| **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, pont Native Messaging, `vaultExtensionFill`, popup (remplissage, copie, capture), shim WebAuthn `world: MAIN` — authentificateur côté coffre différé | ⚠️   |
-| **7+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence, santé du coffre (zxcvbn, HIBP k-Anonymity)                                                         | 🧭   |
+| Phase                            | Contenu                                                                                                                                                                                             | État |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| **0 — Fondations**               | Monorepo Cargo + Bun, CI (format, lint, tests, build desktop), conventions, schémas SQL, bridge MCP Tauri                                                                                           | ✅   |
+| **1 — Cryptographie & stockage** | `akooti-core` : Argon2id, XChaCha20-Poly1305, SQLCipher, en-tête d'amorçage, dossiers système, session et verrouillage automatique                                                                  | ✅   |
+| **2 — Fonctions du coffre**      | Générateur (mots de passe, passphrases EFF), TOTP, routage `Dev Local`, historique, comptes éphémères                                                                                               | ✅   |
+| **3 — Import universel**         | Buttercup, Bitwarden / Vaultwarden, Proton Pass, KeePass / KeePassXC, 1Password, CSV navigateurs ; aperçu, doublons, effacement de la source                                                        | ✅   |
+| **4 — Application desktop**      | Interface Tauri v2 : déverrouillage, coffre, générateur, import, routage, page « Accès IA » ; accessibilité `axe-core`                                                                              | ✅   |
+| **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                                          | ✅   |
+| **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, pont Native Messaging, `vaultExtensionFill`, popup (remplissage, copie, capture), shim WebAuthn `world: MAIN`, authentificateur côté coffre (ES256, `fmt: "none"`) | ✅   |
+| **7+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence, santé du coffre (zxcvbn, HIBP k-Anonymity)                                                                       | 🧭   |
 
 Le détail exécutable vit dans le projet Kaneo **AKO — Akooti** ; le périmètre
 fonctionnel avec les statuts est dans

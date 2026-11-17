@@ -160,6 +160,5 @@ Kaneo account: **DEV MASTER** `heroldtamko39@gmail.com`, user id
   `targetTaskId` = child, `relationType: "subtask"`.
 
 Phases are tracked as tasks: 0 foundations, 1 crypto/storage, 2 vault features,
-3 importers, 4 desktop UI, 5 AI bridge — all `done`; 6 extension + passkeys is
-`in-review` except the Rust WebAuthn authenticator, still `to-do`.
+3 importers, 4 desktop UI, 5 AI bridge, 6 extension + passkeys — all `done`.
 Update the task status/comment as part of each change.

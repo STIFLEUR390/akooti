@@ -60,9 +60,8 @@ daemon d'agir, et le daemon décide.
 ```
 
 Ce qui **n'existe pas encore** : synchronisation Supabase, sauvegardes
-planifiées (S3 / Drive / local), audit de santé du coffre, authenticateur
-WebAuthn côté daemon et transport IPC Windows. Ils sont décrits comme cible et
-marqués 🧭.
+planifiées (S3 / Drive / local), audit de santé du coffre et transport IPC
+Windows. Ils sont décrits comme cible et marqués 🧭.
 
 ## 2. Processus et détention de la clé
 
@@ -71,7 +70,7 @@ marqués 🧭.
 | Binaire `akooti` (GUI)    | oui, tant que le coffre est ouvert | oui, via la fenêtre de révélation | oui                          |
 | Serveur MCP (stdout)      | **non**                          | **non** — il ne reçoit que des issues de remplissage | non  |
 | Pont Native Messaging     | **non** (même contrat que MCP)   | **non** — il recopie des trames sans les désérialiser | non                          |
-| Extension navigateur      | non                              | reçoit les valeurs qu'elle injecte, sans les conserver | **non** — la capture de sélecteurs se colle à la main |
+| Extension navigateur      | non                              | reçoit les valeurs qu'elle injecte, sans les conserver | une ligne `passkeys` par cérémonie WebAuthn, jamais un item |
 | Navigateur cible (CDP)    | non                              | reçoit les valeurs dans le DOM   | —                            |
 | Processus enfant (`vault_exec`) | non                        | reçoit des variables d'environnement, jamais sur son stdout | — |
 
@@ -176,11 +175,42 @@ popup -> service worker -> pont natif -> socket -> daemon
   `forbidden` : le contrat de l'agent ne sait pas lire une valeur
   ([ADR 0008](./adr/0008-extension-native-messaging.md)).
 
-### 4.6 Audit
+### 4.6 Cérémonie WebAuthn servie par le coffre (`vaultPasskeyRegister`, `vaultPasskeyAssert`)
+
+```text
+page -> shim (MAIN) -> content script (ISOLATED) -> service worker -> pont -> daemon
+   -> jeton, portée `blind_fill`, client `native-host`, origine sérialisée vérifiée
+   -> relying party rattachée à l'origine, challenge >= 16 octets
+   -> clé privée P-256 déchiffrée (AAD `akooti:v1:passkey:<id>`), signature ES256
+   -> credential / signature : données publiques, rien d'autre
+```
+
+- Le verbe n'existe que pour le client `native-host` : une connexion `mcp`
+  reçoit `forbidden` et une ligne `access_denied`. Un agent ne peut donc pas
+  transformer le coffre en oracle de signature, et aucun outil MCP n'expose le
+  verbe.
+- L'authentificateur est **honnête sur ce qu'il est** : `fmt: "none"` (aucune
+  attestation revendiquée), drapeau `UP` seul — jamais `UV`, puisque le coffre
+  s'ouvre avec un mot de passe et n'est pas un capteur — et aucun credential
+  découvrable, faute de sélecteur de compte côté daemon. Une cérémonie qui exige
+  `userVerification: "required"` ou `residentKey: "required"` est rendue au
+  navigateur par l'extension, avant tout aller-retour ; le daemon, lui, ne pose
+  jamais `UV`, donc un site qui regarde les drapeaux voit la vérité.
+- La clé privée ne se stocke pas telle quelle : elle est chiffrée en
+  XChaCha20-Poly1305 sous une AAD qui contient l'identifiant du credential, si
+  bien qu'une ligne déplacée sur un autre credential ne s'authentifie plus. La
+  clé publique n'est pas stockée : elle se redérive de la clé privée, donc il n'y
+  a qu'un secret à protéger au lieu de deux qui pourraient diverger.
+- Rien de ce qui traverse le fil n'est secret : `clientDataJSON`, `attestationObject`,
+  `authenticatorData` et la signature sont exactement ce que le site s'attend à
+  recevoir.
+
+### 4.7 Audit
 
 Toutes les actions IA passent par `mcp_audit_logs` : `vault_search`,
-`cdp_autofill`, `blind_autofill`, `create_and_fill`, `exec_env`, et
-`access_denied` pour les refus. Une ligne ne contient jamais de valeur secrète,
+`cdp_autofill`, `blind_autofill`, `create_and_fill`, `exec_env`, `passkey_use`
+pour les cérémonies WebAuthn servies à l'extension, et `access_denied` pour les
+refus. Une ligne ne contient jamais de valeur secrète,
 seulement une origine, un identifiant technique et un diagnostic court.
 
 ## 5. Contrats techniques
@@ -197,6 +227,7 @@ seulement une origine, un identifiant technique et un diagnostic court.
 | Secrets en Rust    | `zeroize::Zeroizing` pour toute clé, dérivée ou valeur déchiffrée                        |
 | Pont navigateur    | hôte `org.akooti.host`, stdin/stdout en trames Native Messaging, **aucun désérialisation** ; manifeste par navigateur écrit par `akooti native-register` ([ADR 0008](./adr/0008-extension-native-messaging.md)) |
 | Extension          | `@wxt-dev/module-react`, service worker seul client du pont, contenu ISOLATED pour écrire dans la page, shim WebAuthn en monde MAIN injecté avec un nonce |
+| Authentificateur WebAuthn | ES256 (P-256) seulement, `fmt: "none"`, drapeau `UP` seul, aucune attestation ; clé privée chiffrée sous l'AAD `akooti:v1:passkey:<credential id>` ; champs binaires en base64url sur le fil |
 
 ## 6. Carte du code
 
@@ -218,6 +249,7 @@ akooti/
 │   │       ├── totp.rs             codes TOTP (RFC 6238)
 │   │       ├── importers/          Buttercup, Bitwarden, Proton, KeePass, 1Password, CSV
 │   │       ├── mcp/                jetons (SHA-256, portées), store, audit
+│   │       ├── passkeys.rs         authentificateur WebAuthn : ES256, CBOR, COSE
 │   │       └── vault_mcp.rs        opérations cloisonnées + plans d'injection
 │   ├── akooti-ipc/             # protocole local : framing, `Request`/`Response`, socket, client
 │   └── akooti-mcp/             # serveur MCP stdio (rmcp) : six outils, zéro clé
@@ -248,12 +280,12 @@ akooti/
 │           ├── native/bridge.ts    port Native Messaging, sérialisé, erreurs typées
 │           ├── native/pairing.ts   jeton dans `storage.local`, forme et masquage
 │           ├── dom/                heuristiques et injection, pures donc testables
-│           └── webauthn/           relais nonce + reconstruction d'un credential
+│           └── webauthn/           relais nonce, lecture des options, reconstruction
 └── packages/shared/            # types et protocoles TypeScript partagés
 ```
 
 Les modules suivants sont **ciblés mais absents** et ne doivent pas être
-supposés présents : `health.rs`, `passkeys.rs`, `sync_supabase.rs`, `backup/`.
+supposés présents : `health.rs`, `sync_supabase.rs`, `backup/`.
 Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 
 ## 7. Décisions structurantes
@@ -274,7 +306,9 @@ Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 | Limite                                                        | Référence                          |
 | ------------------------------------------------------------- | ---------------------------------- |
 | `vault_blind_autofill` (côté agent) répond `unavailable` : le verbe qui libère des valeurs n'est ouvert qu'au pont natif | [ADR 0008](./adr/0008-extension-native-messaging.md) |
-| L'authentificateur WebAuthn côté daemon n'existe pas : le shim intercepte mais retombe toujours sur le navigateur (`handled: false`) | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| L'authentificateur n'est ni découvrable ni vérifiant l'utilisateur : une cérémonie qui l'exige est rendue au navigateur | `crates/akooti-core/src/passkeys.rs` |
+| Aucune attestation : `fmt: "none"`, donc pas d'authentificateur certifié aux yeux d'un site qui l'exigerait | `crates/akooti-core/src/passkeys.rs` |
+| ES256 seulement, pas d'Ed25519 : ES256 est le seul algorithme qu'une relying party est tenue de supporter, et un second algorithme demanderait de mémoriser la courbe de chaque credential — donc un changement de schéma | `crates/akooti-core/src/passkeys.rs` |
 | Un credential reconstruit côté extension n'est pas une instance de `PublicKeyCredential` (objet compatible seulement) | `apps/extension/lib/webauthn/credential.ts` |
 | Pas de transport IPC Windows (named pipe) ni de manifeste Native Messaging dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
 | Aucun fournisseur biométrique branché ; l'interface masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |

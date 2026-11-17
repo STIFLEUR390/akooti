@@ -92,6 +92,23 @@ est vérifié contre l'hôte de l'origine avant tout relais.
 Toute cérémonie que le daemon ne sait pas servir retombe sur l'authentificateur
 du navigateur : activer Akooti ne casse aucun site.
 
+Le daemon ne se contente pas de relayer : il **sert** la cérémonie
+(`crates/akooti-core/src/passkeys.rs`). Il reconstruit `clientDataJSON` à partir
+de l'origine transmise par le script de contenu — jamais celle que prétend la
+page — et vérifie deux fois la relying party : côté extension contre l'hôte de
+la page, côté daemon contre l'origine sérialisée. Une origine non sérialisée ou
+hors contexte sécurisé (hors `http://localhost`) est refusée.
+
+Ce que l'authentificateur revendique, et rien de plus : ES256 sur P-256,
+`fmt: "none"` (aucune attestation), drapeau `UP` seul — jamais `UV`, le coffre
+s'ouvre avec un mot de passe et n'est pas un capteur — et aucun credential
+découvrable (une assertion qui ne liste aucun identifiant est refusée, faute de
+sélecteur de compte). Une cérémonie qui exige `userVerification: "required"` ou
+`residentKey: "required"` est rendue au navigateur **avant** tout aller-retour.
+La clé privée est chiffrée sous l'AAD `akooti:v1:passkey:<credential id>`, et la
+clé publique n'est jamais stockée : elle se redérive, donc il n'y a qu'un secret
+à protéger.
+
 ### 6. Ce que l'extension ne fait jamais
 
 - **Écrire dans le coffre** : la capture de sélecteurs s'affiche dans la popup et
@@ -137,13 +154,18 @@ un identifiant d'extension mal formé avant la moindre écriture.
   jamais (`Zeroizing`, `Debug` masqué) et le MCP répond `forbidden`.
 - L'extension est un quatrième consommateur du contrat : ses formes de messages
   sont épinglées par des tests de trames dorées, en face de celles de Rust.
-- **Non couvert par cette décision** : l'authentificateur WebAuthn côté daemon
-  (génération et signature de credentials) n'existe pas encore. Le shim sait
-  recevoir un credential sérialisé et le reconstruire
-  (`apps/extension/lib/webauthn/credential.ts`), le daemon répond
-  `handled: false`, donc le repli navigateur est le seul chemin exercé
-  aujourd'hui. C'est la tâche 6.4 restante, tracée dans
-  [architecture.md](../architecture.md) §8.
+- Les deux verbes de cérémonie (`vaultPasskeyRegister`, `vaultPasskeyAssert`)
+  sont refusés à toute connexion qui ne s'est pas annoncée `native-host` :
+  un agent ne peut pas transformer le coffre en oracle de signature, et aucun
+  outil MCP n'expose ces verbes (`akooti-mcp` répond `forbidden` s'il reçoit un
+  corps de passkey). Chaque cérémonie servie écrit une ligne d'audit
+  `passkey_use` avec l'origine, jamais le credential.
+- **Reste hors du périmètre de cette décision** : l'attestation (le coffre ne
+  prétend à aucune certification), la vérification de l'utilisateur (pas de
+  capteur), les credentials découvrables (pas de sélecteur de compte), et la
+  cérémonie jouée dans un vrai navigateur — elle demande une extension chargée à
+  la main, la recette est décrite dans
+  [desktop-tests.md](../desktop-tests.md) §6.4.
 - Windows reste hors périmètre : le manifeste Native Messaging y vit dans le
   registre, que [ADR 0006](./0006-transport-ipc-socket-unix.md) diffère déjà avec
   le named pipe.

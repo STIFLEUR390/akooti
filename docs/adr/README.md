@@ -35,6 +35,6 @@ Statuts utilisés : **acceptée**, **remplacée**, **proposée**, **abandonnée*
 - **Comprendre la frontière de sécurité** : 0002 (stockage), 0003 (MCP), 0006
   (transport), 0008 (pont navigateur : un hôte qui ne décode rien).
 - **Comprendre un écart assumé** : 0005 (biométrie), 0006 (Windows), 0007
-  (TOTP courts), 0008 (passkeys servies par le navigateur).
+  (TOTP courts), 0008 (aucune attestation, ni `UV`, ni credential découvrable).
 - **Comprendre l'amorçage du coffre** : 0004 (en-tête public et dérivation de
   clé).

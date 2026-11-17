@@ -249,23 +249,57 @@ Reste à faire avec l'extension chargée : appairage par un vrai jeton **Accès 
 états « Coffre verrouillé » / « Coffre déverrouillé », recherche, remplissage
 d'un onglet, copie, capture, dissociation, et l'audit correspondant.
 
-### 6.4 Shim WebAuthn (observé)
+### 6.4 Passkeys (observé, et ce qui reste manuel)
+
+Trois niveaux ont été vérifiés, et il faut les distinguer pour savoir ce qui est
+prouvé.
+
+**Ce que la recette a observé dans un navigateur**
 
 `webauthn-main.js` injecté dans une page de test avec un `data-akooti-nonce` :
+le shim s'installe (`window.__akootiPasskeyShim === true`), remplace bien
+`navigator.credentials.create`, et — faute de script de contenu pour répondre —
+**rend la main à Chromium**, qui journalise son propre avertissement WebAuthn.
+La cérémonie repart donc vers le navigateur, comme annoncé. Conséquence à
+connaître : sur une page où le pont ne répond pas, le repli arrive au bout du
+délai de la cérémonie. Ce cas ne se produit pas en pratique — le nonce est posé
+par le script de contenu, qui répond toujours, même par une erreur — mais il
+explique pourquoi le shim ne doit jamais être injecté sans lui.
 
-- le shim s'installe (`window.__akootiPasskeyShim === true`) et remplace bien
-  `navigator.credentials.create` ;
-- faute de script de contenu pour répondre, il attend puis **rend la main à
-  Chromium**, qui journalise son propre avertissement WebAuthn : la cérémonie
-  repart vers le navigateur, comme annoncé (`handled: false`) ;
-- conséquence à connaître : sur une page où le pont ne répond pas, le repli
-  arrive au bout du délai de la cérémonie. Ce cas ne se produit pas en pratique —
-  le nonce est posé par le script de contenu, qui répond toujours, même par une
-  erreur — mais il explique pourquoi le shim ne doit jamais être injecté sans
-  lui.
+**Ce que la cérémonie servie par le coffre fait, prouvé sans navigateur**
 
-Reste à faire avec un vrai authentificateur : la cérémonie servie par le coffre
-(tâche 6.4).
+Le navigateur de l'application ne charge pas d'extension non empaquetée : la
+cérémonie n'a donc pas pu être jouée depuis un vrai site. Elle est en revanche
+prouvée de bout en bout au niveau du daemon, ce qui couvre tout sauf la couche
+navigateur :
+
+- `cargo test -p akooti-core --test passkey_test` (8 tests) crée un credential,
+  relit la clé publique **dans l'objet d'attestation**, et vérifie la signature
+  avec une implémentation indépendante (`p256`) : `authData ‖ SHA-256(
+  clientDataJSON)`, compteur croissant, `UP` seul, jamais `UV`.
+- La même série prouve les refus : `rpId` d'un autre site, origine non sécurisée
+  (`http://example.test`), credential présenté pour une autre relying party,
+  assertion sans credential listé, jeton sans `blind_fill`.
+- `cargo test -p akooti --lib daemon` (19 tests) joue la cérémonie complète par
+  `dispatch` : enregistrement puis signature, refus d'une connexion `mcp`
+  (ligne d'audit `access_denied` avec l'origine), base64url invalide refusé
+  avant le coffre, et deux lignes `passkey_use` dont aucune ne contient le
+  credential.
+
+**Reste à faire à la main, avec l'extension chargée**
+
+1. Enregistrer un passkey sur un site de test en HTTPS, vérifier que le
+   credential apparaît côté site et qu'aucune fenêtre du navigateur ne s'ouvre.
+2. Se reconnecter avec ce passkey, puis vérifier la ligne `passkey_use` dans
+   **Accès IA** (origine = le site, aucun credential affiché).
+3. Vérifier le repli : coffre verrouillé, puis application fermée — le site doit
+   enregistrer et se connecter normalement avec l'authentificateur du système.
+4. Vérifier les deux refus annoncés : un site qui demande
+   `userVerification: "required"` et un site qui demande
+   `residentKey: "required"` doivent obtenir l'authentificateur du navigateur,
+   pas une erreur.
+5. Supprimer le credential côté site : le coffre ne doit plus rien trouver, et la
+   connexion doit retomber sur le navigateur.
 
 ### 6.5 Défauts trouvés par cette recette (et corrigés)
 
@@ -282,7 +316,8 @@ Reste à faire avec un vrai authentificateur : la cérémonie servie par le coff
 | 2 | Manifestes : chemin par navigateur et par OS, `allowed_origins` vs `allowed_extensions`, id validé avant toute écriture, installation idempotente, réparation, désinstallation | `cargo test -p akooti native_register` (10 tests) |
 | 3 | Trame `vaultExtensionFill` : forme dorée `camelCase`, version 2, `FillPayload` jamais affiché | `cargo test -p akooti-ipc` |
 | 4 | Une connexion qui ne s'est pas annoncée `native-host` ne peut pas déclencher de remplissage (`access_denied`) ; le serveur MCP traduit `extensionFill` en erreur `forbidden` | `cargo test -p akooti`, `cargo test -p akooti-mcp` |
-| 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn, distinction `context_lost` | `cd apps/extension && bun test lib` (80 tests) |
+| 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn (options, relais, repli), distinction `context_lost` | `cd apps/extension && bun test lib` (98 tests) |
+| 6 | Cérémonie WebAuthn : credential ES256 vérifié par `p256`, compteur croissant, refus d'origine et de relying party, refus d'une connexion `mcp`, audit `passkey_use` sans credential | `cargo test -p akooti-core --test passkey_test` (8), `cargo test -p akooti --lib daemon` (19) |
 
 ## 7. Grille à recopier pour une nouvelle phase
 
@@ -291,6 +326,7 @@ Phase :            …            Date : …            OS / WebKit : …
 Coffre :           jetable (XDG_DATA_HOME=/tmp/…)  ☐
 Déverrouillé :     ☐            Pont MCP actif : 9223 ☐            Vite :1420 ☐
 Pont natif :       manifeste --check ☐   popup appairé ☐   sortie de l'hôte vide ☐
+Passkeys :         site HTTPS ☐   credential créé ☐   reconnexion ☐   audit passkey_use ☐
 
 #  Parcours                     Attendu                      Observé        OK
 1  …                            …                            …              ☐
@@ -307,7 +343,7 @@ Défauts trouvés : … (chacun devient un correctif + un test)
 | Sujet | Raison | Suivi |
 | ----- | ------ | ----- |
 | Déverrouillage biométrique | aucun fournisseur branché, l'UI masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
-| Cérémonie WebAuthn servie par le coffre | le shim intercepte, mais le daemon n'a pas d'authentificateur : `handled: false` et repli navigateur | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Cérémonie WebAuthn jouée depuis un site réel | le navigateur de l'application ne charge pas d'extension non empaquetée ; le daemon, lui, est couvert par des tests de dispatch | §6.4, « reste à faire à la main » |
 | Remplissage piloté par un agent via le pont natif | le pont ne sert que les remplissages initiés par l'extension (`vaultExtensionFill`) | [ADR 0008](./adr/0008-extension-native-messaging.md) |
 | Transport IPC et enregistrement Windows | named pipe non implémenté, manifeste stocké dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
 | Sync Supabase, sauvegardes, santé du coffre | non implémentés | [fonctionalites.md](./fonctionalites.md) |

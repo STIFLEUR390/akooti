@@ -32,7 +32,7 @@ Il fait foi pour arbitrer « est-ce déjà là ? » ; la technique est dans
 | Double authentification (TOTP)    | Codes à 6 chiffres, pas de 30 s, SHA-1/SHA-256, affichage temps réel et copie rapide                       | ✅     |
 | Déverrouillage biométrique        | Trait d'union présent, aucun fournisseur branché ; l'interface masque le contrôle                          | ⚠️ [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
 | Verrouillage automatique          | Après 15 minutes d'inactivité, mise en veille ou action explicite ; la clé est effacée                     | ✅     |
-| Passkeys (WebAuthn / FIDO2)       | Interception de `navigator.credentials` en place ; la signature et la clé privée côté coffre restent à faire | ⚠️ tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Passkeys (WebAuthn / FIDO2)       | Cérémonies servies par le coffre : credential ES256 (P-256) créé puis signé à la demande, clé privée chiffrée, `fmt: "none"`, drapeau `UP` seul | ✅ soumis aux limites ci-dessous, [ADR 0008](./adr/0008-extension-native-messaging.md) |
 
 ## 3. Routage intelligent
 
@@ -109,7 +109,7 @@ service worker est le seul processus qui parle au pont natif
 | Copie de secret                 | Identifiant, mot de passe ou code TOTP copié dans l'onglet actif, effacé du presse-papiers après 30 s   | ✅     |
 | Capture de sélecteurs           | Sélecteurs stables affichés dans la popup, à coller dans l'entrée ; l'extension n'écrit jamais le coffre | ✅     |
 | État affiché                    | Coffre déverrouillé / verrouillé / application fermée, jeton masqué, bouton « Dissocier »              | ✅     |
-| Interception WebAuthn           | `navigator.credentials.create`/`get` remplacés dans le monde MAIN, nonce de page, repli systématique sur l'authentificateur du navigateur | ⚠️ aucun credential côté daemon : voir passkeys |
+| Interception WebAuthn           | `navigator.credentials.create`/`get` remplacés dans le monde MAIN, nonce de page, cérémonie servie par le coffre, repli systématique sur l'authentificateur du navigateur | ✅ |
 | Enregistrement du pont          | `akooti native-register` écrit le manifeste par navigateur (`--check`, `--uninstall`, réparation)       | ✅     |
 | Safari                          | Cible WXT, non construite ni testée                                                                    | 🧭     |
 | Windows                         | Manifeste dans le registre, différé avec le named pipe                                                 | 🧭 [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
@@ -122,8 +122,19 @@ Garde-fous propres à l'extension :
   au presse-papiers ;
 - le content script ne répond qu'avec un compte-rendu (champs remplis,
   soumission), jamais avec une valeur ;
-- une cérémonie WebAuthn que le daemon ne sait pas servir retombe sur le
-  navigateur : installer Akooti ne casse aucun site.
+- une cérémonie WebAuthn que le coffre ne sait pas servir — pas de passkey
+  enregistrée, coffre verrouillé, application fermée, `userVerification:
+  "required"`, `residentKey: "required"` — retombe sur le navigateur :
+  installer Akooti ne casse aucun site.
+
+Ce que l'authentificateur du coffre ne fera jamais, et qui est dit au site :
+
+- **aucune attestation** (`fmt: "none"`) : rien ne prétend être un
+  authentificateur certifié ;
+- **aucune vérification de l'utilisateur** (`UV` jamais posé) : le coffre
+  s'ouvre avec un mot de passe, il n'est pas un capteur ;
+- **aucun credential découvrable** : une assertion qui ne liste aucun
+  identifiant est refusée, faute de sélecteur de compte côté daemon.
 
 ## 7. Génération de secrets
 
@@ -155,11 +166,11 @@ Garde-fous propres à l'extension :
 
 | Domaine                    | Implémenté                                           | Cible                                     |
 | -------------------------- | ---------------------------------------------------- | ----------------------------------------- |
-| Coffre                     | multi-dossiers, historique, TTL, TOTP, verrouillage auto | biométrie, passkeys                   |
+| Coffre                     | multi-dossiers, historique, TTL, TOTP, passkeys, verrouillage auto | biométrie                  |
 | Routage                    | règles complètes + rétroactif                        | —                                         |
 | Import                     | 10 formats + détection automatique + hygiène          | —                                         |
 | IA                         | 5 outils sur 6, jetons cloisonnés, audit              | `vault_blind_autofill` côté agent (le pont ne sert que l'extension) |
-| Extension                  | appairage, recherche, remplissage, copie, capture, pont natif | authenticateur WebAuthn, Safari |
+| Extension                  | appairage, recherche, remplissage, copie, capture, pont natif, passkeys | Safari |
 | Génération                 | mots de passe + passphrases                          | —                                         |
 | Sync / sauvegardes         | base locale                                          | Supabase E2EE, Cron S3/Drive/local, export |
 | Santé                      | —                                                    | zxcvbn, réutilisation, HIBP k-Anonymity   |

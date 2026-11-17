@@ -118,13 +118,25 @@ jetons MCP, les règles de routage et les tests s'y réfèrent.
 | `item_custom_fields` | Champs personnalisés, chiffrés, avec `sort_order` et `is_secret`                        | AAD `…:custom:{id}` |
 | `password_history`   | Versions précédentes du mot de passe, chiffrées                                        | Écrit uniquement en cas de changement réel |
 
-### 2.5 `passkeys` — table créée, écriture par le coffre à faire
+### 2.5 `passkeys` — WebAuthn servi par le coffre
 
 `credential_id` unique, `rp_id`/`rp_name`, `user_handle`, clé privée chiffrée
-(`encrypted_private_key` + nonce), `sign_count`, `last_used_at`. La table existe
-pour que la migration reste unique ; aucune écriture n'a lieu tant que
-l'authentificateur WebAuthn côté coffre n'est pas livré (l'interception côté
-navigateur existe, voir [ADR 0008](./adr/0008-extension-native-messaging.md)).
+(`encrypted_private_key` + nonce), `sign_count`, `last_used_at`. Une ligne par
+credential, écrite par le coffre seul (`crates/akooti-core/src/passkeys.rs`) :
+la migration de la phase 1 avait déjà créé la table, si bien que la phase 6 n'a
+demandé aucun changement de schéma.
+
+- `encrypted_private_key` ne contient que le scalaire P-256, chiffré en
+  XChaCha20-Poly1305 sous l'AAD `akooti:v1:passkey:<credential id>` : une ligne
+  recopiée sur un autre credential cesse de s'authentifier.
+- La clé publique n'est **pas** stockée : elle se redérive du scalaire. Un seul
+  secret à protéger, au lieu de deux qui pourraient diverger.
+- `item_id` reste `NULL` : un passkey appartient à une relying party, pas à une
+  entrée, et il n'a donc pas de dossier — le cloisonnement par dossier des
+  jetons MCP ne s'y applique pas (voir [architecture.md](./architecture.md)
+  §4.6).
+- `sign_count` avance à chaque assertion, pour qu'une relying party puisse
+  repérer un clone ; `last_used_at` date la dernière cérémonie.
 
 ### 2.6 `local_routing_rules` — routage `Dev Local`
 
@@ -139,8 +151,8 @@ navigateur existe, voir [ADR 0008](./adr/0008-extension-native-messaging.md)).
   `token_prefix` (8 caractères pour l'affichage), `scopes_json`, dossier de
   création par défaut, `expires_at`, `revoked_at`, `last_used_at`.
 - `mcp_token_folders` : cloisonnement strict, un jeton ne voit que ces dossiers.
-- `mcp_audit_logs` : `action` (`vault_search`, `cdp_autofill`,
-  `create_and_fill`, `exec_env`, `access_denied`), `status` (`success`,
+- `mcp_audit_logs` : `action` (`vault_search`, `cdp_autofill`, `blind_autofill`,
+  `create_and_fill`, `exec_env`, `passkey_use`, `access_denied`), `status` (`success`,
   `denied`, `error`), `target_item_id`, `target_origin`, `details` — jamais de
   valeur secrète. Index `idx_audit_created_at`.
 

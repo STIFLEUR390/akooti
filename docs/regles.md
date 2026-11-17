@@ -117,7 +117,7 @@ document de recette ([desktop-tests.md](./desktop-tests.md),
 | 3     | Importateurs universels et hygiène post-import                                               | ✅     |
 | 4     | Application desktop Tauri v2 : interface du coffre, accessibilité                            | ✅     |
 | 5     | Pont IA : CLI multi-modes, daemon IPC, serveur MCP, jetons cloisonnés, audit, `SKILL.md`      | ✅     |
-| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                   | ⚠️ livrée sans authenticateur WebAuthn (tâche 6.4) |
+| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                   | ✅     |
 | 7+    | Synchronisation Supabase E2EE, sauvegardes planifiées, santé du coffre                        | 🧭     |
 
 ---
