@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["bun", "node"]
   },
-  "include": ["entrypoints", "wxt.config.ts"]
+  "include": ["entrypoints", "lib", "wxt.config.ts"]
 }

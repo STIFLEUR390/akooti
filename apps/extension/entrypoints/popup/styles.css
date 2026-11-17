@@ -1,0 +1,346 @@
+/*
+ * Akooti popup design system.
+ *
+ * Same tokens as the desktop app (`apps/desktop/src/styles.css`), reduced to
+ * what a 360 px panel needs. Dark is the only theme: a browser popup inherits
+ * no page styling and the desktop app defaults to dark (`docs/regles.md` §3.1).
+ */
+
+:root {
+  color-scheme: dark;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --bg-app: #0b0f14;
+  --bg-panel: #111821;
+  --bg-elevated: #151d28;
+  --bg-hover: #1b2532;
+  --bg-input: #0d141c;
+
+  --border: #24303f;
+  --border-strong: #33455c;
+
+  --text: #e6edf3;
+  --text-muted: #95a3b4;
+
+  --accent: #4f8cf7;
+  --accent-contrast: #07121f;
+  --success: #33c48d;
+  --success-soft: rgba(51, 196, 141, 0.14);
+  --danger: #f2626b;
+  --danger-soft: rgba(242, 98, 107, 0.14);
+  --warn: #e0a63c;
+  --warn-soft: rgba(224, 166, 60, 0.14);
+
+  --radius-sm: 6px;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brand {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.pill--success {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.pill--warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.pill--muted {
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+/* Alerts ------------------------------------------------------------------ */
+
+.alerts:empty {
+  display: none;
+}
+
+.alert {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.alert--danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: rgba(242, 98, 107, 0.35);
+}
+
+.alert--success {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: rgba(51, 196, 141, 0.35);
+}
+
+.alert__detail {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Pairing ----------------------------------------------------------------- */
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pair__title {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Controls ---------------------------------------------------------------- */
+
+.field {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+}
+
+.field:focus-visible,
+.button:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.button {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.button--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.button--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+
+.button:disabled,
+.chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* Search and results ------------------------------------------------------ */
+
+.search {
+  display: flex;
+  gap: 6px;
+}
+
+.search .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.item__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item__title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item__host,
+.item__username {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.item__copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Selector capture -------------------------------------------------------- */
+
+.capture {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.capture__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.capture__head .muted {
+  flex: 1;
+}
+
+.capture__text {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.small {
+  font-size: 11px;
+}
+
+.page {
+  margin: 0;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
