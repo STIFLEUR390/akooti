@@ -1,129 +1,146 @@
-# Repository Guidelines
+# AGENTS.md
+
+Akooti is a local-first password vault. One Rust binary (`akooti`) ships the Tauri
+desktop app, the local daemon that holds the master key, the headless MCP server and
+(later) the browser bridge. Bun workspaces host the React UI, the WXT extension and
+shared TS types.
 
 ## Layout and current state
 
-Rust workspace (`crates/*`, `src-tauri`) plus Bun workspace (`apps/*`, `packages/*`).
-Only part of the documented design is implemented; check `src/` before assuming a module exists.
+Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`).
 
-- `crates/akooti-core` — the implemented product: crypto, SQLCipher, folders/items,
-  generator, TOTP, routing, importers, session. It must never import Tauri, WebView or
-  React, so it stays unit-testable and portable.
-- `crates/akooti-core/src/importers/` — parsers normalize untrusted files into
-  `ImportBundle`; only `importers/pipeline.rs` opens the SQLCipher transaction. Parse
-  failures stay typed and must not echo decrypted values. `import_file` securely
-  deletes the source only after commit and reports cleanup failures without rolling
-  back the import.
-- `crates/akooti-ipc` — the local wire protocol: length-prefixed JSON frames (4-byte
-  LE, 1 MiB cap), `Request`/`Response`, socket discovery (`AKOOTI_SOCKET`, else
-  `$XDG_RUNTIME_DIR/akooti/daemon.sock`) and the blocking `DaemonClient`. Unix socket
-  only; Windows named pipes are deferred (ADR 0006).
-- `crates/akooti-mcp` — the `rmcp` stdio server: `vault_status`, `vault_search`,
-  `vault_blind_autofill`, `vault_cdp_autofill`, `vault_create_and_fill`, `vault_exec`.
-  It holds no key and no vault handle: every tool forwards the token to the daemon and
-  maps a refusal to a tool error with a stable code. Zero-Leak tests live in-file.
-- `src-tauri` — desktop shell: `lib.rs` routes the CLI modes before any window
-  (`cli.rs`), `headless.rs` runs the real MCP server (`mcp`) and the phase-6 stub
-  (`native-host`), installs the tray (`tray.rs`) and owns the 15-minute vault lifecycle
-  (`vault_runtime.rs`) as an `Arc` shared with `daemon/`. `daemon/` is the local IPC
-  server (socket `0600`, token auth, audit) plus the injection engines: `inject.rs`
-  (CDP now, Native Messaging later) and `exec.rs` (`vault_exec` with output masking).
-  `commands/` is the whole typed IPC surface (vault, folders, items, generator,
-  routing, import/export, clipboard, mcp); `dto.rs` holds the serde payloads and
-  `error.rs` the stable error codes. `biometrics.rs` reports no provider (ADR 0005).
-- `crates/akooti-core/src/mcp/` — token generation/hashing/scopes, the SQLite store and
-  the audit trail; `vault_mcp.rs` holds the scoped operations (`mcp_search`,
-  `mcp_fill_plan`, `mcp_create_ephemeral`, `mcp_env`; the hourly `purge_expired` pass removes them).
-  Tokens are stored as SHA-256 digests and compared in constant time.
-- `apps/desktop` — the React/Vite vault UI: `lib/ipc.ts` is the typed command bridge
-  (with an in-memory mock used outside Tauri), `hooks/` owns theme, shortcuts, reveal
-  countdown and vault data, `components/` and `pages/` render the unlock screen, the
-  three-column vault, the generator, the import wizard, the routing page and the AI
-  access page (tokens, one-time secret, audit trail).
-  `apps/extension` — WXT with only `entrypoints/background.ts`.
-- `packages/shared` — domain types and wire protocols, exported as raw `.ts` (no build
-  step). Import as `@akooti/shared`; it is aliased in `apps/desktop/vite.config.ts` and
-  `apps/desktop/tsconfig.json`.
-- `README.md` and `docs/*.md` describe the target design and list files that do not
-  exist yet (`health.rs`, `passkeys.rs`, `rbac.rs`, `sync_supabase.rs`, `backup/`,
-  `skills/`, …). Trust manifests and `src/` over prose.
-- Non-negotiable rules: `docs/regles.md`. Test ownership and critical coverage:
-  `docs/testing.md`. Decisions: `docs/adr/`. README/CONTRIBUTING/docs are French;
-  code, comments and commits are English.
+- `crates/akooti-core` — the product logic: crypto, SQLCipher, folders/items, generator,
+  TOTP, routing, importers, session, MCP tokens and audit. **It must never import Tauri,
+  WebView or React** (keeps it unit-testable and portable).
+  - `importers/`: parsers normalize untrusted files into `ImportBundle`; only
+    `importers/pipeline.rs` opens the SQLCipher transaction. `import_file` erases the
+    source file only after commit and reports cleanup failure without rolling back.
+  - `mcp/`: token issue/hash (SHA-256, constant-time compare), store, audit.
+    `vault_mcp.rs` holds the scoped operations. Expired agent accounts are purged by
+    `items/maintenance.rs`, driven by `VaultRuntime::run_maintenance` on the UI loop —
+    not by a timer.
+- `crates/akooti-ipc` — the local wire protocol: 4-byte LE length + JSON, 1 MiB cap,
+  `Request`/`Response`, socket path (`AKOOTI_SOCKET`, else `$XDG_RUNTIME_DIR/akooti/daemon.sock`)
+  and the blocking `DaemonClient`. Unix only; Windows named pipes deferred (ADR 0006).
+- `crates/akooti-mcp` — `rmcp` stdio server exposing six tools. It depends only on
+  `akooti-ipc`: no vault handle, no key, no `akooti-core`. Every tool forwards the token
+  to the daemon and maps refusals to tool errors with stable codes. Zero-Leak tests are in-file.
+- `src-tauri` — crate/package name is **`akooti`** (dir `src-tauri`, lib `akooti_lib`,
+  bin `akooti`), so `cargo test -p akooti` is the desktop shell and needs Tauri system deps.
+  `lib.rs` routes CLI modes before any window (`cli.rs`), `headless.rs` runs `mcp` /
+  `native-host`, `vault_runtime.rs` owns the shared `Arc<VaultRuntime>` and 15-minute lock,
+  `daemon/` is the IPC server (`inject.rs` = CDP fill, `exec.rs` = `vault_exec` masking),
+  `commands/` is the typed IPC surface, `dto.rs`/`error.rs` the payloads and stable codes.
+- `apps/desktop` — React/Vite UI. `lib/ipc.ts` is the typed command bridge with an in-memory
+  mock used outside Tauri; `hooks/`, `components/`, `pages/` cover unlock, vault, generator,
+  import, routing and the AI access page. `apps/extension` is WXT with only
+  `entrypoints/background.ts` (phase 6). `packages/shared` exports raw `.ts` (no build step)
+  as `@akooti/shared`, aliased in `apps/desktop/vite.config.ts` and `tsconfig.json`.
+- `docs/` is the reference and is now accurate, with per-claim statuses: ✅ implemented,
+  🧭 planned, ⚠️ known limit. `docs/README.md` is the index, `docs/regles.md` the normative
+  rules, `docs/architecture.md` processes/flows/contracts, `docs/testing.md` coverage,
+  `docs/desktop-tests.md` the manual recipe, `docs/adr/` the decisions. Still design-only:
+  sync, backups, vault health, passkeys, extension content scripts, Native Messaging.
+  Verify against `src/` before assuming; the code wins.
 
 ## Commands
 
 ```bash
 bun install                     # Bun workspaces; bun.lock is committed
 bun run dev                     # desktop frontend only (Vite on :1420)
-bun run tauri dev               # desktop app + debug MCP bridge
+bun run tauri dev               # app + debug MCP bridge (spawns Vite itself)
 bun run dev:extension           # WXT HMR
-bun run build                   # build every package that defines a build script
-bun run lint                    # ESLint (flat config)
+bun run build                   # build every package that has a build script
+bun run lint                    # ESLint flat config, ignores src-tauri/**
 bun run format:check            # Prettier; ignores docs/ and bun.lock
-bun run typecheck               # wxt prepare, then tsc per package
-bun test                        # bun:test (shared + desktop lib/ and mock/)
-bun test packages/shared/src/models.test.ts   # one TS suite
-cargo test -p akooti-core --locked
-cargo test -p akooti-core --test import_pipeline_test   # one integration suite
-cargo test -p akooti-core -p akooti-ipc -p akooti-mcp --locked   # what CI runs without Tauri
-cargo test -p akooti-core <name>                        # one Rust test
-cargo clippy -p akooti-core -p akooti-ipc -p akooti-mcp --all-targets --locked -- -D warnings
+bun run typecheck               # wxt prepare (extension), then tsc per package
+bun test                        # bun:test, run from the repo root
+bun test packages/shared/src/models.test.ts          # one TS suite
+cargo test -p akooti-core --locked                   # fast core feedback
+cargo test -p akooti-core --test import_pipeline_test  # one integration suite
+cargo test -p akooti-core <name>                     # one Rust test
+cargo test -p akooti-core -p akooti-ipc -p akooti-mcp --locked   # no Tauri deps needed
+cargo clippy -p akooti-core --all-targets --locked -- -D warnings
 cargo fmt --all --check         # safe without Tauri system deps
 ```
 
-- Workspace package names are scoped: `bun run --filter @akooti/desktop dev`. A bare
-  `--filter desktop` matches nothing and exits 0 — a silent no-op.
+- Workspace packages are scoped: `bun run --filter @akooti/desktop dev`. A bare
+  `--filter desktop` matches nothing and **exits 0** — a silent no-op.
 - CI runs `bun install --frozen-lockfile` and cargo with `--locked`: commit `bun.lock`
   and `Cargo.lock` whenever dependencies change.
-- CI JS order: lint → format:check → typecheck → test → build. CI Rust order:
-  fmt → clippy → test → build over the whole workspace, then
-  `bun run tauri build --no-bundle`.
-- `cargo test/clippy/build --workspace` needs the Tauri system deps; locally use
-  `-p akooti-core` for fast feedback and treat CI as the full compile gate.
-  `cargo fmt` does not need those deps.
-- TS tests run only through `bun test`; there is no per-app test script. Rust suites in
-  `crates/akooti-core/tests/` hold the real coverage — share helpers via
-  `tests/common/mod.rs`, use `tempfile` isolated vaults, and keep fixtures anonymized.
-- `apps/desktop/build` runs `tsc --noEmit` before Vite, so `bun run build` also
-  typechecks the desktop app.
+- CI order — Rust: fmt → clippy → test → build over the whole workspace; JS: lint →
+  format:check → typecheck → test → build; then `bun run tauri build --no-bundle`.
+- `cargo ... --workspace` needs the Tauri system deps. Locally prefer `-p akooti-core`
+  (and `-p akooti-ipc -p akooti-mcp`) for fast loops; CI is the full compile gate.
+- There is no per-app test script: TS tests only run through `bun test` at the root.
+  Rust coverage lives in `crates/akooti-core/tests/`; share helpers via
+  `tests/common/mod.rs`, use `tempfile` vaults, keep fixtures anonymized.
+- `apps/desktop`'s `build` runs `tsc --noEmit` first, so `bun run build` typechecks it.
 
-## Tauri specifics
+## Things that bite
 
-- System packages are listed in `CONTRIBUTING.md` (Fedora and Ubuntu). Without
-  `webkit2gtk-4.1`/`gtk3` devel, workspace cargo commands and `bun run tauri dev` fail.
-- Vite is pinned to `1420` with `strictPort`: a stale dev server makes `tauri dev` fail.
-- `tauri build` triggers `beforeBuildCommand` (desktop build first). `frontendDist` is
-  relative to `src-tauri/`, not the repo root (`../apps/desktop/dist`).
+- **stdout is the wire in `mcp` mode.** JSON-RPC owns stdout; every log goes to stderr
+  (`tracing` is wired to stderr, and only `akooti version` prints to stdout). A
+  `println!` in the headless path corrupts the protocol.
+- Exit codes of headless modes: `2` = `mcp` without a token, `3` = `native-host`
+  (phase 6 stub), `1` = startup/wire failure.
+- **Schema:** `db.rs` embeds `migrations/001_init.sql` via `include_str!`, applies it once
+  and stamps `PRAGMA user_version` (`CURRENT_SCHEMA_VERSION = 1`; a newer version is
+  treated as corruption). Never edit that shipped migration — add a new file and bump the
+  constant.
+- The real vault lives in `app_data_dir` (`~/.local/share/com.akooti.desktop` on Linux:
+  `vault.meta` + `vault.db`). Never point builds, tests or scripts at it; tests use
+  `tempfile` directories.
 - `tauri-plugin-mcp-bridge` is registered only under `#[cfg(debug_assertions)]`, binds
   `127.0.0.1:9223`, and needs `withGlobalTauri: true` plus the `mcp-bridge:default`
-  capability. After `bun run tauri dev`, connect with `driver_session`; screenshots/DOM/
-  IPC tools target window `main`.
-- `.wxt/`, `apps/desktop/dist/` and `src-tauri/gen/` are generated and gitignored;
-  never edit them. Extension types require `wxt prepare` (the `typecheck` script does it).
-- `.env.example` / `.env.local` document Supabase and logging values for later phases;
-  no Rust code reads them yet (Vite only auto-loads `VITE_*`).
+  capability. After `bun run tauri dev`, connect with `driver_session`; DOM/screenshot/IPC
+  tools target window `main`. `curl` on that port returns `000` even when healthy.
+- Vite is pinned to `:1420` with `strictPort`; a stale dev server makes `tauri dev` fail.
+  Don't start Vite separately — `beforeDevCommand` does it. `frontendDist` is relative to
+  `src-tauri/` (`../apps/desktop/dist`).
+- `.wxt/`, `apps/desktop/dist/`, `src-tauri/gen/` are generated: never edit. Extension
+  types need `wxt prepare` (the `typecheck` script runs it).
+- `.env.example` documents `AKOOTI_LOG`, `AKOOTI_SUPABASE_*`, `VITE_AKOOTI_ENV`. Only Vite
+  auto-loads `VITE_*`; no Rust code reads the Supabase values yet.
+
+## Local test vault and project MCP (gitignored secrets)
+
+`TEST-VAULT.local.txt` and `opencode.json` are **gitignored** and hold a throwaway vault
+password, MCP tokens and the recipe to rebuild them. Never commit them, never paste their
+values into tracked files, docs, tickets or PRs — `*.local.txt` and `opencode.json` are in
+`.gitignore` for that reason. Cleanup: `TEST-VAULT.local.txt` §5.
+
+- `opencode.json` declares a project-local MCP server running
+  `target/debug/akooti mcp --token …`: it needs a built binary **and** the desktop app
+  running and unlocked. App closed → `daemon_unavailable`; locked → `locked`; expired or
+  revoked token → `invalid_credentials` (reissue in **Accès IA** and realign both files).
+- Rebuild (`cargo build -p akooti`) after Rust changes; the MCP server is a thin client of
+  the running daemon, so the debug binary and the app must come from the same build.
+- Recette and expected outputs: `docs/desktop-tests.md`.
 
 ## Style
 
-- Rust: edition 2024, resolver 3, 100 columns, four spaces. `unsafe` is forbidden,
-  `unwrap` and `dbg_macro` are denied, `expect`/`todo` warn; tests are exempt via
-  `clippy.toml`.
-- TypeScript: strict plus `noUncheckedIndexedAccess` and `verbatimModuleSyntax`; ESLint
-  requires `import type` (`consistent-type-imports`). Two spaces, `PascalCase`
-  components, 100 columns. ESLint ignores `src-tauri/**` and generated directories.
-- Conventional Commits (`fix(mcp): ...`); branches `feat/`, `fix/`, `chore/`, `docs/`,
-  `refactor/`, `test/`. PRs must fill the security checklist and link the Kaneo task.
+- Rust: edition 2024, resolver 3, 100 columns, four spaces. `unsafe` forbidden, `unwrap`
+  and `dbg_macro` denied, `expect`/`todo` warn — tests are exempt via `clippy.toml`.
+- TypeScript: strict + `noUncheckedIndexedAccess` + `verbatimModuleSyntax`; ESLint enforces
+  `import type`. Two spaces, `PascalCase` components, 100 columns.
+- Conventional Commits in English (`fix(mcp): …`); branches `feat/`, `fix/`, `chore/`,
+  `docs/`, `refactor/`, `test/`. PR template asks for the security checklist and the Kaneo
+  task link. Docs and README are French; code, comments, commits are English.
 
-## Security invariants
+## Security invariants (see `docs/regles.md`)
 
-- No password, key, TOTP code, or decrypted value in MCP responses, errors, logs,
-  snapshots, or committed fixtures.
+- No password, key, TOTP seed/code or decrypted value in MCP responses, errors, logs,
+  audit rows, screenshots or committed fixtures.
 - Any secret held in Rust goes through `zeroize::Zeroizing<T>`.
-- Automatic routing may only add `Dev Local` membership through `item_folders`; it must
-  never remove an existing folder.
-- Tokens, audit logs, and backup config stay local; never sync them.
-- Local config goes in `.env.local` (gitignored), never in tracked files. Report
-  vulnerabilities privately via GitHub Security Advisories.
+- A fill requires an explicit, exactly matching `origin`; any page whose URL differs is
+  refused before loading a script, and the refusal is audited.
+- `vault_exec` exports only `AKOOTI_USERNAME`, `AKOOTI_PASSWORD` and `AKOOTI_<FIELD>` per
+  custom field — no TOTP, no master password — and masks those values in stdout/stderr.
+- Routing may only **add** `Dev Local` membership via `item_folders`, never remove a folder.
+- MCP tokens, audit logs and backup config stay local: never synced or exported.
+- Local secrets live in `.env.local` or the gitignored files above, never in tracked files.
+  Report vulnerabilities privately via GitHub Security Advisories.
 
 ## Task tracking
 
@@ -133,8 +150,9 @@ Kaneo account: **DEV MASTER** `heroldtamko39@gmail.com`, user id
 - Workspace "Aplix": `GAiYlKA3Nr2yEh3Ea40IY0f0tvK4rjQ0`
 - Project "Akooti" (slug `AKO`): `ql4kabfti5m3hlbofdlb5bek`
 - Statuses are column slugs: `to-do`, `in-progress`, `in-review`, `done`.
-- Subtasks use `create_task_relation` with `sourceTaskId` = parent and
+- Subtasks use `create_task_relation` with `sourceTaskId` = parent,
   `targetTaskId` = child, `relationType: "subtask"`.
 
-Tasks carry acceptance criteria and doc references; update their status/comment as part
-of each change.
+Phases are tracked as tasks: 0 foundations, 1 crypto/storage, 2 vault features,
+3 importers, 4 desktop UI, 5 AI bridge — all `done`; 6 extension + passkeys is next.
+Update the task status/comment as part of each change.
