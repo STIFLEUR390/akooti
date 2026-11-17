@@ -308,7 +308,6 @@ impl Vault {
         };
         let ttl = draft.ttl_seconds.clamp(60, 60 * 60 * 24 * 30);
         let now = unix_seconds(SystemTime::now())?;
-        let primary_url = draft.primary_url.clone();
         let generated = crate::generate_password(&crate::PasswordOptions {
             length: 24,
             lowercase: true,
@@ -337,17 +336,9 @@ impl Vault {
             uris: Vec::new(),
             custom_fields: Vec::new(),
         })?;
+        // The daemon writes the audit row once the fill outcome is known, so a
+        // refusal to fill still shows up as such.
         let plan = self.mcp_fill_plan(principal, &item.id, McpScope::CreateAndFill)?;
-        record(
-            self,
-            principal,
-            McpAction::CreateAndFill,
-            AuditStatus::Success,
-            Some(&item.id),
-            Some(&folder_id),
-            primary_url.as_deref(),
-            Some(format!("ephemeral account with a {ttl}s TTL")),
-        )?;
         Ok(EphemeralAccount { item, plan })
     }
 

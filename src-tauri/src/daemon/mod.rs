@@ -181,7 +181,13 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request) -> Response {
             endpoint,
             selectors,
         } => with_principal(runtime, &token, |principal| {
-            let plan = fill_plan(runtime, principal, &item_id, McpScope::BlindFill)?;
+            let plan = fill_plan(
+                runtime,
+                principal,
+                &item_id,
+                McpScope::BlindFill,
+                McpAction::CdpAutofill,
+            )?;
             let outcome = inject::cdp_fill(
                 endpoint.as_deref(),
                 &origin,
@@ -205,6 +211,7 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request) -> Response {
             username,
             ttl_seconds,
             endpoint,
+            selectors,
         } => with_principal(runtime, &token, |principal| {
             let created = runtime
                 .with_vault_mut(|vault| {
@@ -220,7 +227,12 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request) -> Response {
                     )
                 })
                 .map_err(|error| denial(runtime, principal, error, "create_and_fill"))?;
-            let outcome = inject::cdp_fill(endpoint.as_deref(), &url, &target(&created.plan), None);
+            let outcome = inject::cdp_fill(
+                endpoint.as_deref(),
+                &url,
+                &target(&created.plan),
+                selectors.as_ref(),
+            );
             audit_outcome(
                 runtime,
                 principal,
@@ -326,10 +338,11 @@ fn fill_plan(
     principal: &McpPrincipal,
     item_id: &str,
     scope: McpScope,
+    action: McpAction,
 ) -> Result<McpFillPlan, Response> {
     runtime
         .with_vault(|vault| vault.mcp_fill_plan(principal, item_id, scope))
-        .map_err(|error| denial(runtime, principal, error, "fill_plan"))
+        .map_err(|error| denial(runtime, principal, error, action.as_str()))
 }
 
 /// Maps a failed action to a response, and audits a policy refusal.
@@ -365,9 +378,10 @@ fn audit_outcome(
     origin: &str,
     outcome: &FillOutcome,
 ) -> Result<(), Response> {
+    // `Partial` means no selector matched: nothing was filled, so it is a failure.
     let status = match outcome.status {
-        FillStatus::Filled | FillStatus::Partial => AuditStatus::Success,
-        FillStatus::Unavailable | FillStatus::Failed => AuditStatus::Error,
+        FillStatus::Filled => AuditStatus::Success,
+        FillStatus::Partial | FillStatus::Unavailable | FillStatus::Failed => AuditStatus::Error,
     };
     let details = outcome
         .detail

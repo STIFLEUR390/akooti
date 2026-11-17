@@ -55,8 +55,28 @@ desktop app unlocked) — otherwise every call fails with `daemon_unavailable`.
    only expanded if you ask for a shell yourself:
    `["bash", "-c", "docker login -u \"$AKOOTI_USERNAME\" -p \"$AKOOTI_PASSWORD\""]`.
    The output you get back has every injected value replaced by `***`.
-4. For a disposable signup: `vault_create_and_fill` with a title and the URL.
-   The account is deleted automatically when its TTL expires.
+   The environment carries `AKOOTI_USERNAME`, `AKOOTI_PASSWORD` and one
+   `AKOOTI_<FIELD_NAME>` per custom field. There is no `AKOOTI_TOTP`: generate
+   the code with the fill tools or ask the user, never by reading the vault.
+4. For a disposable signup: `vault_create_and_fill` with a title, the URL and,
+   like `vault_cdp_autofill`, a `selectors` object (`username`, `password`,
+   `totp`, `submit`). A throwaway item has no stored selectors, so without them
+   the fill comes back `partial` and nothing is filled. The account is deleted
+   automatically when its TTL expires.
+
+### Fill results
+
+Both fill tools answer `{status, fieldsFilled, submitted, detail}`:
+
+- `filled` — at least one field was injected; `fieldsFilled` names them.
+- `partial` — no selector matched. Treat it as a failure: fix the selectors and
+  call again.
+- `failed` — the page, the endpoint or the origin was refused; `detail` carries
+  a stable code such as `no page target matches the requested origin`.
+- `unavailable` — the native messaging bridge is missing (extension path only).
+
+(A filled TOTP code is reported as `totp` in `fieldsFilled`; the code itself is
+never returned.)
 
 ## Rules you must follow
 
@@ -83,5 +103,5 @@ desktop app unlocked) — otherwise every call fails with `daemon_unavailable`.
 | `invalid_input`       | Missing field, out-of-range TTL, or malformed command.          |
 
 `vault_blind_autofill` is the one exception: it answers a normal result whose
-`detail` says the extension bridge is unavailable, so check `filled` rather
+`detail` says the extension bridge is unavailable, so check `status` rather
 than trusting the call's success.

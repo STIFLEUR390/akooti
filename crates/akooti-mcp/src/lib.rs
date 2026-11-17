@@ -93,6 +93,9 @@ pub struct CreateArgs {
     /// DevTools endpoint used for the fill.
     #[serde(default)]
     pub endpoint: Option<String>,
+    /// CSS selectors overriding the ones stored on the created item.
+    #[serde(default)]
+    pub selectors: Option<Selectors>,
 }
 
 /// Arguments of `vault_exec`.
@@ -244,6 +247,7 @@ impl AkootiServer {
             username: args.username,
             ttl_seconds: args.ttl_seconds,
             endpoint: args.endpoint,
+            selectors: args.selectors.as_ref().map(SelectorOverride::from),
         })
     }
 

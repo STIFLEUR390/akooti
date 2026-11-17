@@ -46,13 +46,15 @@ fn passphrase_generation_honors_eff_words_and_case() {
     let parts = generated.value.expose().split("::").collect::<Vec<_>>();
 
     assert_eq!(parts.len(), 6);
+    // Four EFF entries are hyphenated (`t-shirt`, `yo-yo`, ...), so the words are
+    // not purely alphabetic even though the list is the expected one.
     assert!(parts.iter().all(|word| {
         word.chars()
             .next()
             .is_some_and(|character| character.is_ascii_uppercase())
             && word
                 .chars()
-                .all(|character| character.is_ascii_alphabetic())
+                .all(|character| character.is_ascii_alphabetic() || character == '-')
     }));
     assert!(generated.entropy_bits > 77.0);
     assert!(generated.entropy_bits < 78.0);

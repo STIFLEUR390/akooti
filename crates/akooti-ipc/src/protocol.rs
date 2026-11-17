@@ -72,6 +72,9 @@ pub enum Request {
         ttl_seconds: Option<i64>,
         /// CDP endpoint used for the fill.
         endpoint: Option<String>,
+        /// Selectors overriding the ones stored on the created item.
+        #[serde(default)]
+        selectors: Option<SelectorOverride>,
     },
     /// Secret injection into a child process environment.
     VaultExec {
