@@ -24,9 +24,11 @@ use akooti_core::{
     AuditStatus, McpAction, McpFillPlan, McpPrincipal, McpScope, NewAuditEntry, VaultError,
 };
 use akooti_ipc::{
-    ExecOutcome, FillOutcome, FillStatus, Handshake, ItemSummary, PROTOCOL_VERSION, Request,
-    Response, ResponseBody, VaultStatus, read_frame, socket_path, write_frame,
+    ExecOutcome, FillOutcome, FillPayload, FillStatus, Handshake, ItemSummary, PROTOCOL_VERSION,
+    Request, Response, ResponseBody, SelectorOverride, VaultStatus, read_frame, socket_path,
+    write_frame,
 };
+use zeroize::Zeroizing;
 
 use crate::vault_runtime::VaultRuntime;
 
@@ -94,13 +96,19 @@ fn serve(_runtime: Arc<VaultRuntime>, path: PathBuf) -> Result<Daemon, String> {
 fn handle_connection(mut stream: std::os::unix::net::UnixStream, runtime: &VaultRuntime) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(120)));
+    let mut client = ClientKind::Unknown;
     loop {
         let frame = match read_frame(&mut stream) {
             Ok(frame) => frame,
             Err(_) => return,
         };
         let response = match serde_json::from_slice::<Request>(&frame) {
-            Ok(request) => dispatch(runtime, request),
+            Ok(request) => {
+                if let Request::Handshake { client: name, .. } = &request {
+                    client = ClientKind::parse(name);
+                }
+                dispatch(runtime, request, client)
+            }
             Err(_) => Response::error("protocol", "the request could not be decoded"),
         };
         let encoded = match serde_json::to_vec(&response) {
@@ -114,9 +122,41 @@ fn handle_connection(mut stream: std::os::unix::net::UnixStream, runtime: &Vault
     }
 }
 
+/// Who opened the connection, as declared by the handshake.
+///
+/// The declaration is not a credential — the token is — but it keeps the
+/// extension-only verbs off an agent's connection, and it makes an accidental
+/// cross-wiring visible in the audit log instead of silent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientKind {
+    /// No handshake was seen yet.
+    Unknown,
+    /// `akooti mcp`, driven by an AI agent.
+    Mcp,
+    /// `akooti native-host`, driven by the paired browser extension.
+    NativeHost,
+    /// The desktop UI.
+    Ui,
+    /// A client kind this build does not know.
+    Other,
+}
+
+impl ClientKind {
+    /// Parses the `client` field of a handshake.
+    pub(crate) fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "mcp" => Self::Mcp,
+            "native-host" | "native_host" => Self::NativeHost,
+            "ui" => Self::Ui,
+            "" => Self::Unknown,
+            _ => Self::Other,
+        }
+    }
+}
+
 /// Handles one request. Exposed for tests so the policy can be exercised without
 /// a real socket.
-pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request) -> Response {
+pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request, client: ClientKind) -> Response {
     match request {
         Request::Handshake {
             protocol_version,
@@ -173,6 +213,71 @@ pub(crate) fn dispatch(runtime: &VaultRuntime, request: Request) -> Response {
                 &outcome,
             )?;
             Ok(ResponseBody::Fill(outcome))
+        }),
+        Request::VaultExtensionFill {
+            token,
+            item_id,
+            origin,
+            selectors,
+            target,
+        } => with_principal(runtime, &token, |principal| {
+            // The extension is the only peer allowed to receive a value: it is
+            // the process that writes the page. An agent connection asking for
+            // this verb is refused and audited before any decryption.
+            if client != ClientKind::NativeHost {
+                let _ = runtime.record_audit(NewAuditEntry {
+                    token_id: Some(principal.token_id.clone()),
+                    action: McpAction::AccessDenied,
+                    target_item_id: Some(item_id.clone()),
+                    target_folder_id: None,
+                    target_origin: Some(origin.clone()),
+                    status: AuditStatus::Denied,
+                    details: Some("extension fill requested outside the browser bridge".to_owned()),
+                });
+                return Err(Response::error("forbidden", "access denied"));
+            }
+            let fill = runtime
+                .with_vault(|vault| {
+                    vault.mcp_extension_fill(principal, &item_id, &origin, McpScope::BlindFill)
+                })
+                .map_err(|error| denial(runtime, principal, error, "blind_autofill"))?;
+            let merged = inject::merge_selectors(&fill.selectors, selectors.as_ref());
+            let payload = FillPayload {
+                origin: fill.origin.clone(),
+                selectors: SelectorOverride {
+                    username: merged.username,
+                    password: merged.password,
+                    totp: merged.totp,
+                    submit: merged.submit,
+                },
+                username: redacted(fill.username.as_ref()),
+                password: redacted(fill.password.as_ref()),
+                totp: redacted(fill.totp.as_ref()),
+            };
+            let released = [
+                payload.username.is_some(),
+                payload.password.is_some(),
+                payload.totp.is_some(),
+            ]
+            .iter()
+            .filter(|present| **present)
+            .count();
+            // `target` is free text from the extension; the audit keeps the
+            // count and the requested gesture, never a value.
+            let gesture = match target.as_deref() {
+                Some("clipboard") => "clipboard",
+                _ => "fill",
+            };
+            record(
+                runtime,
+                principal,
+                McpAction::BlindAutofill,
+                AuditStatus::Success,
+                Some(&item_id),
+                Some(&origin),
+                Some(format!("{released} value(s) released for {gesture}")),
+            )?;
+            Ok(ResponseBody::ExtensionFill(payload))
         }),
         Request::VaultCdpAutofill {
             token,
@@ -295,6 +400,7 @@ fn capabilities() -> Vec<String> {
     vec![
         "vault_search".to_owned(),
         "cdp_autofill".to_owned(),
+        "extension_fill".to_owned(),
         "create_and_fill".to_owned(),
         "exec_env".to_owned(),
     ]
@@ -473,6 +579,14 @@ fn target(plan: &McpFillPlan) -> inject::FillTarget {
             .as_ref()
             .map(|value| akooti_core::SecretString::new(value.expose().to_owned())),
     }
+}
+
+/// Copies a secret into the payload that leaves towards the extension.
+///
+/// The copy is wrapped in [`Zeroizing`] so it is wiped with the response, and it
+/// never passes through a `String` that outlives it.
+fn redacted(value: Option<&akooti_core::SecretString>) -> Option<Zeroizing<String>> {
+    value.map(|secret| Zeroizing::new(secret.expose().to_owned()))
 }
 
 const fn item_type_name(item_type: akooti_core::ItemType) -> &'static str {

@@ -30,15 +30,20 @@ pub struct FillTarget {
     pub totp: Option<SecretString>,
 }
 
-/// Fills a page through the extension bridge.
+/// Fills a page through the browser extension bridge.
 ///
-/// The bridge lands in phase 6 (`akooti native-host`); until then this is an
-/// explicit `unavailable`, so no agent believes a form was filled.
+/// The native bridge (`akooti native-host`, [ADR 0008]) only serves fills the
+/// extension itself initiates (`vaultExtensionFill`): the popup decides the
+/// target, the origin and the selectors. An agent has no handle on that
+/// channel, so the answer stays an explicit `unavailable` and no agent
+/// believes a form was filled. Agents drive pages through [`cdp_fill`].
+///
+/// [ADR 0008]: ../../../docs/adr/0008-extension-native-messaging.md
 #[must_use]
 pub fn native_messaging_fill() -> FillOutcome {
     FillOutcome::unavailable(
         "native-messaging",
-        "the browser extension bridge is not available in this build; use vault_cdp_autofill",
+        "the native bridge only serves extension-initiated fills; use vault_cdp_autofill",
     )
 }
 
@@ -100,7 +105,7 @@ fn failed(transport: &str, detail: &str) -> FillOutcome {
     }
 }
 
-fn merge_selectors(base: &Selectors, overrides: Option<&SelectorOverride>) -> Selectors {
+pub(crate) fn merge_selectors(base: &Selectors, overrides: Option<&SelectorOverride>) -> Selectors {
     let Some(overrides) = overrides else {
         return base.clone();
     };
@@ -343,7 +348,7 @@ mod tests {
         assert!(
             outcome
                 .detail
-                .is_some_and(|detail| detail.contains("not available"))
+                .is_some_and(|detail| detail.contains("extension-initiated"))
         );
     }
 }
