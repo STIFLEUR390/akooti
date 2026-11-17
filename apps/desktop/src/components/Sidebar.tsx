@@ -1,0 +1,314 @@
+import { useState } from "react";
+
+import type { Folder } from "@akooti/shared";
+
+import type { ThemeMode } from "../hooks/useTheme";
+import type { Screen } from "../hooks/useVaultData";
+import type { BuildInfo } from "../lib/ipc";
+import { Icon } from "./Icons";
+import type { IconName } from "./Icons";
+
+interface SidebarProps {
+  folders: Folder[];
+  counts: Record<string, number>;
+  activeFolderId: string | null;
+  onSelectFolder: (id: string | null) => void;
+  screen: Screen;
+  onScreen: (screen: Screen) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (id: string) => void;
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+  onLock: () => void;
+  buildInfo: BuildInfo | null;
+  /** Inactivity timeout enforced by the backend, in minutes. */
+  autoLockMinutes: number;
+  /** Folders shared with an active MCP token (phase 5); empty for now. */
+  sharedFolderIds: ReadonlySet<string>;
+}
+
+const SYSTEM_ICONS: Record<string, IconName> = {
+  user: "user",
+  terminal: "terminal",
+  bot: "bot",
+};
+
+function iconFor(folder: Folder): IconName {
+  return SYSTEM_ICONS[folder.icon] ?? "folder";
+}
+
+/**
+ * Folder navigation.
+ *
+ * The three protected folders sit apart from user folders: they get their own
+ * heading, their colour, a lock glyph, and no rename/delete affordance
+ * (`docs/regles.md` §3.1).
+ */
+export function Sidebar({
+  folders,
+  counts,
+  activeFolderId,
+  onSelectFolder,
+  screen,
+  onScreen,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  theme,
+  onToggleTheme,
+  onLock,
+  buildInfo,
+  autoLockMinutes,
+  sharedFolderIds,
+}: SidebarProps) {
+  const [creating, setCreating] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const systemFolders = folders.filter((folder) => folder.isSystem);
+  const userFolders = folders.filter((folder) => !folder.isSystem);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+
+  function submitFolder() {
+    const name = draftName.trim();
+    if (name.length > 0) {
+      onCreateFolder(name);
+    }
+    setDraftName("");
+    setCreating(false);
+  }
+
+  function submitRename(folder: Folder) {
+    const name = renameValue.trim();
+    if (name.length > 0 && name !== folder.name) {
+      onRenameFolder(folder.id, name);
+    }
+    setRenaming(null);
+  }
+
+  return (
+    <nav className="sidebar" aria-label="Navigation du coffre">
+      <div className="sidebar__brand">
+        <span className="sidebar__logo" aria-hidden="true">
+          <Icon name="shield" size={18} />
+        </span>
+        <h1 className="sidebar__brand-name">Akooti</h1>
+      </div>
+
+      <button
+        type="button"
+        className={
+          activeFolderId === null && screen === "vault" ? "nav-item nav-item--active" : "nav-item"
+        }
+        onClick={() => {
+          onSelectFolder(null);
+          onScreen("vault");
+        }}
+        aria-current={activeFolderId === null && screen === "vault" ? "page" : undefined}
+      >
+        <Icon name="key" />
+        <span className="nav-item__label">Toutes les entrées</span>
+        <span className="nav-item__count">{total}</span>
+      </button>
+
+      <h2 className="sidebar__heading">Dossiers système</h2>
+      <ul className="nav-list">
+        {systemFolders.map((folder) => {
+          const isActive = screen === "vault" && activeFolderId === folder.id;
+          return (
+            <li key={folder.id}>
+              <button
+                type="button"
+                className={isActive ? "nav-item nav-item--active" : "nav-item"}
+                onClick={() => {
+                  onSelectFolder(folder.id);
+                  onScreen("vault");
+                }}
+                aria-current={isActive ? "page" : undefined}
+              >
+                <span
+                  className="nav-item__icon nav-item__icon--system"
+                  style={folder.color ? { color: folder.color } : undefined}
+                >
+                  <Icon name={iconFor(folder)} />
+                </span>
+                <span className="nav-item__label">
+                  <span className="nav-item__name">{folder.name}</span>
+                  <span className="nav-item__tag" title="Dossier protégé">
+                    <Icon name="lock" size={11} />
+                    <span className="nav-item__tag-text">système</span>
+                  </span>
+                </span>
+                {sharedFolderIds.has(folder.id) ? (
+                  <span className="nav-item__shared" title="Partagé avec un jeton MCP">
+                    <Icon name="bot" size={12} />
+                  </span>
+                ) : null}
+                <span className="nav-item__count">{counts[folder.id] ?? 0}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <h2 className="sidebar__heading">
+        Mes dossiers
+        <button
+          type="button"
+          className="icon-button icon-button--small"
+          onClick={() => setCreating((current) => !current)}
+          aria-label="Créer un dossier"
+          aria-expanded={creating}
+        >
+          <Icon name="plus" size={14} />
+        </button>
+      </h2>
+
+      {creating ? (
+        <form
+          className="sidebar__inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitFolder();
+          }}
+        >
+          <input
+            autoFocus
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onBlur={submitFolder}
+            placeholder="Nom du dossier"
+            aria-label="Nom du nouveau dossier"
+            maxLength={64}
+          />
+        </form>
+      ) : null}
+
+      {userFolders.length === 0 ? (
+        <p className="sidebar__empty">
+          Aucun dossier personnel. Créez-en un pour organiser vos entrées.
+        </p>
+      ) : (
+        <ul className="nav-list">
+          {userFolders.map((folder) => {
+            const isActive = screen === "vault" && activeFolderId === folder.id;
+            return (
+              <li key={folder.id}>
+                {renaming === folder.id ? (
+                  <form
+                    className="sidebar__inline-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      submitRename(folder);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onBlur={() => submitRename(folder)}
+                      aria-label={`Nouveau nom pour ${folder.name}`}
+                      maxLength={64}
+                    />
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className={isActive ? "nav-item nav-item--active" : "nav-item"}
+                    onClick={() => {
+                      onSelectFolder(folder.id);
+                      onScreen("vault");
+                    }}
+                    aria-current={isActive ? "page" : undefined}
+                    onDoubleClick={() => {
+                      setRenaming(folder.id);
+                      setRenameValue(folder.name);
+                    }}
+                  >
+                    <span
+                      className="nav-item__icon"
+                      style={folder.color ? { color: folder.color } : undefined}
+                    >
+                      <Icon name={iconFor(folder)} />
+                    </span>
+                    <span className="nav-item__label">
+                      <span className="nav-item__name">{folder.name}</span>
+                    </span>
+                    <span className="nav-item__count">{counts[folder.id] ?? 0}</span>
+                  </button>
+                )}
+                <div className="nav-item__actions">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      setRenaming(folder.id);
+                      setRenameValue(folder.name);
+                    }}
+                  >
+                    Renommer
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button text-button--danger"
+                    onClick={() => onDeleteFolder(folder.id)}
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <div className="sidebar__tools">
+        <button
+          type="button"
+          className={screen === "import" ? "nav-item nav-item--active" : "nav-item"}
+          onClick={() => onScreen("import")}
+          aria-current={screen === "import" ? "page" : undefined}
+        >
+          <Icon name="upload" />
+          <span className="nav-item__label">Importer</span>
+        </button>
+        <button
+          type="button"
+          className={screen === "routing" ? "nav-item nav-item--active" : "nav-item"}
+          onClick={() => onScreen("routing")}
+          aria-current={screen === "routing" ? "page" : undefined}
+        >
+          <Icon name="sliders" />
+          <span className="nav-item__label">Routage Dev Local</span>
+        </button>
+      </div>
+
+      <footer className="sidebar__footer">
+        <button type="button" className="nav-item" onClick={onLock}>
+          <Icon name="lock" />
+          <span className="nav-item__label">Verrouiller</span>
+          <kbd>Ctrl L</kbd>
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          onClick={onToggleTheme}
+          aria-pressed={theme === "light"}
+        >
+          <Icon name={theme === "dark" ? "sun" : "moon"} />
+          <span className="nav-item__label">
+            {theme === "dark" ? "Thème clair" : "Thème sombre"}
+          </span>
+        </button>
+        <p className="sidebar__build">Verrouillage auto : {autoLockMinutes} min</p>
+        {buildInfo ? (
+          <p className="sidebar__build">
+            v{buildInfo.appVersion} · noyau {buildInfo.coreVersion} · {buildInfo.platform}
+          </p>
+        ) : null}
+      </footer>
+    </nav>
+  );
+}

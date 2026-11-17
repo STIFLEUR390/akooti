@@ -3,7 +3,9 @@ use std::time::{Duration, SystemTime};
 use crate::error::VaultError;
 use crate::header::VaultPaths;
 use crate::models::VaultStatus;
-use crate::vault::Vault;
+use crate::vault::{Vault, unix_seconds};
+
+const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// Owns the unlocked vault and enforces inactivity locking.
 #[derive(Debug)]
@@ -11,6 +13,7 @@ pub struct VaultSession {
     paths: VaultPaths,
     vault: Option<Vault>,
     last_activity: SystemTime,
+    last_maintenance: SystemTime,
     auto_lock_minutes: u32,
 }
 
@@ -21,6 +24,7 @@ impl VaultSession {
             paths,
             vault: None,
             last_activity: SystemTime::now(),
+            last_maintenance: SystemTime::now(),
             auto_lock_minutes,
         }
     }
@@ -31,15 +35,19 @@ impl VaultSession {
         self.auto_lock_minutes = vault.auto_lock_minutes();
         self.vault = Some(vault);
         self.touch();
+        self.last_maintenance = SystemTime::now();
         Ok(())
     }
 
     /// Unlocks the existing vault and resets inactivity.
     pub fn unlock(&mut self, password: &str) -> Result<(), VaultError> {
-        let vault = Vault::open(&self.paths, password)?;
+        let now = SystemTime::now();
+        let mut vault = Vault::open(&self.paths, password)?;
+        vault.purge_expired(unix_seconds(now)?)?;
         self.auto_lock_minutes = vault.auto_lock_minutes();
         self.vault = Some(vault);
         self.touch();
+        self.last_maintenance = now;
         Ok(())
     }
 
@@ -105,5 +113,27 @@ impl VaultSession {
             self.lock();
         }
         expired
+    }
+
+    /// Purges expired items when the hourly maintenance interval has elapsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the purge fails.
+    pub fn run_maintenance(&mut self, now: SystemTime) -> Result<usize, VaultError> {
+        if self.vault.is_none()
+            || now
+                .duration_since(self.last_maintenance)
+                .is_ok_and(|elapsed| elapsed < MAINTENANCE_INTERVAL)
+        {
+            return Ok(0);
+        }
+        let deleted = self
+            .vault
+            .as_mut()
+            .ok_or(VaultError::Locked)?
+            .purge_expired(unix_seconds(now)?)?;
+        self.last_maintenance = now;
+        Ok(deleted)
     }
 }

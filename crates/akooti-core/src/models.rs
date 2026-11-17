@@ -255,6 +255,12 @@ pub struct VaultItem {
     pub updated_at: i64,
     /// Soft-delete time in Unix seconds.
     pub deleted_at: Option<i64>,
+    /// Whether an encrypted password is stored (presence only, never the value).
+    pub has_password: bool,
+    /// Whether an encrypted TOTP seed is stored.
+    pub has_totp: bool,
+    /// Whether encrypted notes are stored.
+    pub has_notes: bool,
 }
 
 /// Vault item creation or full update input.
@@ -331,6 +337,59 @@ pub enum SecretField {
     Notes,
     /// Custom field selected by identifier.
     CustomField,
+}
+
+impl SecretField {
+    /// Stable wire name used by the desktop UI and the IPC protocols.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Password => "password",
+            Self::Totp => "totp",
+            Self::Notes => "notes",
+            Self::CustomField => "custom_field",
+        }
+    }
+}
+
+/// Metadata-only item edit that never needs a plaintext secret.
+#[derive(Clone)]
+pub struct ItemMetadataDraft {
+    /// Item kind.
+    pub item_type: ItemType,
+    /// Display title.
+    pub title: String,
+    /// Primary URL.
+    pub primary_url: Option<String>,
+    /// Username or account identifier.
+    pub username: Option<String>,
+    /// Saved autofill selectors.
+    pub selectors: Selectors,
+    /// Expiry time in Unix seconds.
+    pub expires_at: Option<i64>,
+    /// Whether the item is a favourite.
+    pub favorite: bool,
+    /// Folder memberships after the edit.
+    pub folder_ids: Vec<String>,
+    /// Linked URIs after the edit.
+    pub uris: Vec<ItemUriInput>,
+}
+
+impl fmt::Debug for ItemMetadataDraft {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ItemMetadataDraft")
+            .field("item_type", &self.item_type)
+            .field("title", &self.title)
+            .field("primary_url", &self.primary_url)
+            .field("username", &self.username)
+            .field("selectors", &self.selectors)
+            .field("expires_at", &self.expires_at)
+            .field("favorite", &self.favorite)
+            .field("folder_ids", &self.folder_ids)
+            .field("uris", &self.uris)
+            .finish()
+    }
 }
 
 /// A secret revealed explicitly to the local UI.

@@ -10,6 +10,18 @@ const ITEM_COLUMNS: &str = "id, item_type, title, primary_url, username,
     zxcvbn_score, password_sha1_prefix, is_compromised, password_updated_at,
     created_by_agent, expires_at, favorite, created_at, updated_at, deleted_at";
 
+/// Secret **presence** flags. Booleans only: the ciphertext never leaves the
+/// row, so the UI can decide whether to offer a reveal control without holding
+/// — or probing for — a secret.
+const SECRET_FLAGS: &str = "(encrypted_password IS NOT NULL) AS has_password,
+    (encrypted_totp_secret IS NOT NULL) AS has_totp,
+    (encrypted_notes IS NOT NULL) AS has_notes";
+
+/// Same flags, qualified for the `vault_items v` alias used by [`list`].
+const SECRET_FLAGS_ALIASED: &str = "(v.encrypted_password IS NOT NULL) AS has_password,
+    (v.encrypted_totp_secret IS NOT NULL) AS has_totp,
+    (v.encrypted_notes IS NOT NULL) AS has_notes";
+
 pub(crate) fn list(
     connection: &Connection,
     filter: &ItemFilter,
@@ -28,7 +40,7 @@ pub(crate) fn list(
         ""
     };
     let sql = format!(
-        "SELECT v.{columns} FROM vault_items v
+        "SELECT v.{columns}, {SECRET_FLAGS_ALIASED} FROM vault_items v
          WHERE 1 = 1{deleted_clause}{folder_clause}
          ORDER BY v.updated_at DESC, v.id",
         columns = ITEM_COLUMNS.replace(", ", ", v.")
@@ -51,9 +63,12 @@ pub(crate) fn get(
     include_deleted: bool,
 ) -> Result<VaultItem, VaultError> {
     let sql = if include_deleted {
-        format!("SELECT {ITEM_COLUMNS} FROM vault_items WHERE id = ?1")
+        format!("SELECT {ITEM_COLUMNS}, {SECRET_FLAGS} FROM vault_items WHERE id = ?1")
     } else {
-        format!("SELECT {ITEM_COLUMNS} FROM vault_items WHERE id = ?1 AND deleted_at IS NULL")
+        format!(
+            "SELECT {ITEM_COLUMNS}, {SECRET_FLAGS} FROM vault_items \
+             WHERE id = ?1 AND deleted_at IS NULL"
+        )
     };
     let item = connection
         .query_row(&sql, [id], item_from_row)
@@ -137,6 +152,9 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<VaultItem> {
         created_at: row.get(16)?,
         updated_at: row.get(17)?,
         deleted_at: row.get(18)?,
+        has_password: row.get(19)?,
+        has_totp: row.get(20)?,
+        has_notes: row.get(21)?,
     })
 }
 

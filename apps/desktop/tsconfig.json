@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client"],
+    "types": ["vite/client", "bun"],
     "baseUrl": ".",
     "paths": {
       "@akooti/shared": ["../../packages/shared/src/index.ts"]

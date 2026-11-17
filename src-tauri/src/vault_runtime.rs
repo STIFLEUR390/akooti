@@ -1,10 +1,14 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
-use akooti_core::{VaultError, VaultPaths, VaultSession, VaultStatus};
+use akooti_core::{Vault, VaultError, VaultPaths, VaultSession, VaultStatus};
 
-/// Process-wide vault lifecycle shared by future Tauri commands and the daemon.
+use crate::error::CommandError;
+
+/// Process-wide vault lifecycle shared by Tauri commands and the daemon.
+#[derive(Debug)]
 pub struct VaultRuntime {
+    paths: VaultPaths,
     session: Mutex<VaultSession>,
 }
 
@@ -12,8 +16,73 @@ impl VaultRuntime {
     /// Creates a locked runtime below the platform application data directory.
     pub fn new(paths: VaultPaths) -> Self {
         Self {
-            session: Mutex::new(VaultSession::new(paths, 15)),
+            session: Mutex::new(VaultSession::new(paths.clone(), 15)),
+            paths,
         }
+    }
+
+    /// Reports whether a vault file already exists on disk.
+    pub fn is_initialized(&self) -> bool {
+        self.paths.header.is_file() && self.paths.database.is_file()
+    }
+
+    /// Runs a read-only vault operation under the runtime lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VaultError::Locked`] when no session is open, and propagates
+    /// the operation error otherwise.
+    pub fn with_vault<T>(
+        &self,
+        operation: impl FnOnce(&Vault) -> Result<T, VaultError>,
+    ) -> Result<T, VaultError> {
+        let session = self.session();
+        operation(session.vault()?)
+    }
+
+    /// Runs a mutating vault operation under the runtime lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VaultError::Locked`] when no session is open, and propagates
+    /// the operation error otherwise.
+    pub fn with_vault_mut<T>(
+        &self,
+        operation: impl FnOnce(&mut Vault) -> Result<T, VaultError>,
+    ) -> Result<T, VaultError> {
+        let mut session = self.session();
+        operation(session.vault_mut()?)
+    }
+
+    /// Runs a read-only operation whose own errors are command errors.
+    ///
+    /// Used by the import wizard, where a parse failure must keep its own
+    /// stable code instead of collapsing into a vault error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::locked`] when no session is open.
+    pub fn run<T>(
+        &self,
+        operation: impl FnOnce(&Vault) -> Result<T, CommandError>,
+    ) -> Result<T, CommandError> {
+        let session = self.session();
+        let vault = session.vault().map_err(CommandError::from)?;
+        operation(vault)
+    }
+
+    /// Runs a mutating operation whose own errors are command errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::locked`] when no session is open.
+    pub fn run_mut<T>(
+        &self,
+        operation: impl FnOnce(&mut Vault) -> Result<T, CommandError>,
+    ) -> Result<T, CommandError> {
+        let mut session = self.session();
+        let vault = session.vault_mut().map_err(CommandError::from)?;
+        operation(vault)
     }
 
     /// Creates the initial vault.
@@ -57,6 +126,13 @@ impl VaultRuntime {
     /// Locks when the inactivity deadline has elapsed.
     pub fn enforce_auto_lock(&self) {
         self.session().enforce_auto_lock(SystemTime::now());
+    }
+
+    /// Runs hourly vault maintenance and reports purge failures.
+    pub fn run_maintenance(&self) {
+        if let Err(error) = self.session().run_maintenance(SystemTime::now()) {
+            tracing::error!(%error, "vault maintenance failed");
+        }
     }
 
     /// Applies the conservative resume policy: lock on explicit resume, then

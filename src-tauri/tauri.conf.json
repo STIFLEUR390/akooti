@@ -26,6 +26,39 @@
       "csp": null
     }
   },
+  "plugins": {
+    "cli": {
+      "description": "Akooti vault, desktop daemon and AI bridge",
+      "args": [
+        {
+          "name": "help",
+          "short": "h",
+          "description": "Prints this help message"
+        },
+        {
+          "name": "version",
+          "short": "V",
+          "description": "Prints the version"
+        }
+      ],
+      "subcommands": {
+        "mcp": {
+          "description": "Runs the headless MCP server on stdio",
+          "args": [
+            {
+              "name": "token",
+              "short": "t",
+              "description": "Scoped MCP token issued by the desktop app",
+              "takesValue": true
+            }
+          ]
+        },
+        "native-host": {
+          "description": "Serves the browser Native Messaging bridge on stdio"
+        }
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

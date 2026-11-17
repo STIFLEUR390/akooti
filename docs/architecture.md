@@ -87,7 +87,7 @@ akooti/
 │   │       ├── header.rs                # En-tête public d'amorçage du coffre
 │   │       ├── session.rs               # Verrouillage et compteur d'inactivité
 │   │       ├── vault.rs                 # Cycle de vie et API métier du coffre
-│   │       ├── routing.rs               # Moteur de règles auto vers `Dev Local` (.local, .test, etc.)
+│   │       ├── routing/                 # Moteur de règles auto vers `Dev Local` (.local, .test, etc.)
 │   │       ├── generator.rs             # Générateur aléatoire (OsRng) & Passphrases Diceware
 │   │       ├── health.rs                # Audit offline (zxcvbn, doublons, ancienneté) + HIBP k-Anonymity
 │   │       ├── totp.rs                  # Génération et vérification des codes 2FA TOTP

@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main Akooti window",
+  "description": "Capability for the main Akooti window: only the clipboard and file-dialog primitives the vault UI needs",
   "windows": ["main"],
-  "permissions": ["core:default", "mcp-bridge:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-title",
+    "mcp-bridge:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-open"
+  ]
 }
