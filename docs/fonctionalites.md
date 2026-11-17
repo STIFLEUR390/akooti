@@ -1,118 +1,133 @@
-### Vue d'ensemble & Architecture
+# Périmètre fonctionnel
 
-* **Nom du projet :** **Akooti** (exécutable unique `akooti`)
-* **Philosophie :** *Local-First* (100 % autonome hors ligne), *Zero-Knowledge* (chiffrement de bout en bout) et *Zero-Leak* (aucun mot de passe exposé en clair aux modèles d'IA).
-* **Stack technologique :**
-* **Application Desktop & CLI :** **Tauri v2 (Rust + React/TypeScript)** avec `tauri-plugin-cli` (un binaire unique pour l'interface graphique, le daemon en arrière-plan, le pont navigateur *Native Messaging* et le serveur MCP).
-* **Extension Navigateur :** **WXT (TypeScript/React)** compilant une base unique vers Chrome, Brave, Edge, Firefox et Safari (Manifest V3 & V2).
-* **Stockage & Cryptographie :** Base locale **SQLCipher** + dérivation de clé **Argon2id** + chiffrement **XChaCha20-Poly1305** + effacement mémoire immédiat (**`zeroize`**).
+Ce document décrit ce que fait Akooti, fonction par fonction, avec son statut.
+Il fait foi pour arbitrer « est-ce déjà là ? » ; la technique est dans
+[architecture.md](./architecture.md), les contraintes dans
+[regles.md](./regles.md).
 
+**Statuts** : ✅ implémenté (couvert par des tests) · 🧭 prévu (décidé, non
+écrit) · ⚠️ limite connue.
 
+## 1. Positionnement
 
----
+| Élément           | Choix                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Nom               | **Akooti**, exécutable unique `akooti`                                                  |
+| Philosophie       | _Local-first_ (100 % hors ligne), _zero-knowledge_ (chiffrement de bout en bout), _zero-leak_ (aucun secret exposé à un modèle d'IA) |
+| Desktop & CLI     | Tauri v2 (Rust + React/TypeScript), un binaire pour l'interface, le daemon, le pont navigateur et le serveur MCP |
+| Extension         | WXT (TypeScript) compilée vers Chrome, Edge, Brave, Firefox et Safari (MV3 / MV2) 🧭   |
+| Stockage          | SQLCipher local + Argon2id + XChaCha20-Poly1305 + effacement mémoire (`zeroize`)       |
+| Hors périmètre    | Serveur propriétaire, modèles d'IA embarqués, pièces jointes volumineuses              |
 
-### 1. Organisation du Coffre-Fort & Authentification Moderne
+## 2. Coffre et organisation
 
-* **Appartenance Multi-Dossiers (*Many-to-Many*) :** Une même entrée peut être classée dans **plusieurs dossiers simultanément** depuis l'interface (sans duplication des données : toute modification est synchronisée partout).
-* **Dossiers Système Intégrés (créés automatiquement) :**
-* **`Personnel` :** Dossier racine par défaut pour les comptes quotidiens.
-* **`Dev Local` :** Dossier dédié aux outils et services locaux (Docker, bases de données, interfaces d'administration locales).
-* **`Agents & MCP` :** Dossier bac à sable où sont enregistrés par défaut les comptes créés à la volée par les agents de codage ou via CLI.
+| Fonction                          | Comportement attendu                                                                                     | Statut |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- | ------ |
+| Multi-dossiers (N:N)              | Une entrée appartient à plusieurs dossiers sans duplication ; toute modification est visible partout       | ✅     |
+| Dossiers système                  | `Personnel`, `Dev Local`, `Agents & MCP` créés à l'initialisation, non supprimables et non renommables     | ✅     |
+| Champs d'une entrée               | Titre, URL principale, identifiant, mot de passe, graine TOTP, notes, champs personnalisés, URI multiples, favori | ✅ |
+| Sélecteurs DOM mémorisés          | `username`, `password`, `totp`, `submit` stockés sur l'entrée et réutilisés par l'injection                | ✅     |
+| Historique des mots de passe      | Versions précédentes conservées chiffrées, écrites seulement en cas de changement réel                     | ✅     |
+| Comptes de test éphémères (TTL)   | `expires_at` sur l'entrée, purge automatique des comptes créés par un agent                                | ✅     |
+| Double authentification (TOTP)    | Codes à 6 chiffres, pas de 30 s, SHA-1/SHA-256, affichage temps réel et copie rapide                       | ✅     |
+| Déverrouillage biométrique        | Trait d'union présent, aucun fournisseur branché ; l'interface masque le contrôle                          | ⚠️ [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
+| Verrouillage automatique          | Après 15 minutes d'inactivité, mise en veille ou action explicite ; la clé est effacée                     | ✅     |
+| Passkeys (WebAuthn / FIDO2)       | Interception de `navigator.credentials`, signature locale, clé privée stockée dans le coffre                | 🧭 phase 6 |
 
+## 3. Routage intelligent
 
-* **Gestion des Comptes de Test Éphémères (TTL) :** Possibilité d'attribuer une durée de vie limitée aux comptes de test créés par les agents IA pour purge automatique.
-* **Historique des Mots de Passe :** Conservation chiffrée des anciennes versions de mots de passe sur chaque fiche.
-* **Déverrouillage Biométrique Natif :** Support de Windows Hello, macOS Touch ID et Linux Polkit/FIDO2, avec verrouillage automatique après inactivité ou mise en veille.
-* **Double Authentification (2FA / TOTP) :** Générateur de codes TOTP à 6 chiffres intégré (copie rapide, remplissage par l'extension et injection aveugle via MCP).
-* **Gestion des Passkeys (WebAuthn / FIDO2) :** Interception de `navigator.credentials.create()` et `get()` dans le navigateur via l'extension WXT (`world: 'MAIN'`), signature cryptographique et stockage des clés privées dans Akooti.
+| Fonction                       | Comportement attendu                                                                                       | Statut |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------ |
+| Règles par défaut              | `.local`, `.test`, `.localhost` (suffixe), `localhost`, `127.0.0.1` (hôte exact) → `Dev Local`             | ✅     |
+| Types de règle                 | `suffix`, `exact_host`, `cidr`, `regex`                                                                    | ✅     |
+| Règles personnalisées          | Ajout, activation / désactivation, suppression depuis la page **Routage**                                   | ✅     |
+| Routage à l'import             | Case activée par défaut : les URLs locales sont **ajoutées** au dossier `Dev Local`                        | ✅     |
+| Application rétroactive        | Analyse des entrées existantes et ajout d'appartenance en un clic, sans jamais retirer un dossier existant  | ✅     |
+| Non-destructivité              | Le routage ajoute une appartenance et n'en retire jamais                                                     | ✅     |
 
----
+## 4. Importation universelle
 
-### 2. Routage Intelligent & Importation Universelle
+| Source                        | Formats acceptés                                                     | Statut |
+| ----------------------------- | -------------------------------------------------------------------- | ------ |
+| Buttercup                     | `.bcup` chiffré (AES-256-CBC + HMAC-SHA256), export `.csv`            | ✅     |
+| Bitwarden / Vaultwarden       | `.json` chiffré ou en clair : dossiers, URI multiples, TOTP, champs perso | ✅  |
+| Proton Pass                   | `.json` et `.zip` non chiffré                                        | ✅     |
+| KeePass / KeePassXC           | `.kdbx` (v3 et v4), `.xml`, `.csv`                                    | ✅     |
+| 1Password                     | `.1pux`, `.csv`                                                      | ✅     |
+| Navigateurs                   | `.csv` Chrome, Brave, Edge, Firefox                                   | ✅     |
+| Détection automatique         | Le format est déduit du contenu quand l'utilisateur ne l'impose pas   | ✅     |
 
-* **Importation Multi-Sources :**
-* **Buttercup :** Lecture native des coffres chiffrés **`.bcup`** (AES-256-CBC + HMAC-SHA256) et des exports `.csv`.
-* **Bitwarden / Vaultwarden :** Imports `.json` (chiffrés ou en clair) incluant dossiers, URI multiples, TOTP et champs personnalisés.
-* **Proton Pass :** Imports `.json` et `.csv` (coffres, alias, TOTP, notes).
-* **KeePass / KeePassXC :** Lecture directe des bases chiffrées **`.kdbx`** (v3/v4) ainsi que `.xml` et `.csv`.
-* **1Password :** Lecture des archives **`.1pux`** et `.csv`.
-* **Navigateurs :** Imports `.csv` standards (Chrome, Brave, Edge, Firefox).
+Hygiène post-import, commune à tous les formats :
 
+- **aperçu avant écriture** : entrées, dossiers, doublons détectés ;
+- **politique de doublons** : ignorer ou importer malgré tout ;
+- **effacement sécurisé de la source** : optionnelle, exécutée uniquement après
+  validation de la transaction SQLCipher, avec écrasement avant suppression ;
+- **rapport d'import** : compteurs (importés, ignorés routés, erreurs) et état
+  du nettoyage.
 
-* **Routage Automatique vers `Dev Local` (à l'import et rétroactivement) :**
-* **Case à cocher activée par défaut lors de chaque importation :** Détecte automatiquement les URLs locales (`.local`, `.test`, `.localhost`, `localhost`, `127.0.0.1`) et les affecte au dossier **`Dev Local`** (tout en conservant leur dossier d'origine si souhaité).
-* **Règles de sous-domaines personnalisables :** Ajout libre de nouveaux suffixes ou motifs locaux (ex: `*.docker`, `*.internal`, `*.dev.monprojet`) dans les paramètres.
-* **Application rétroactive :** Action en un clic pour analyser les entrées déjà importées et les classer automatiquement selon les règles `Dev Local`.
+## 5. Intégration IA (MCP)
 
+Le serveur MCP (`akooti mcp --token …`) expose six outils. Aucun ne retourne de
+mot de passe, de graine TOTP ou de champ personnalisé.
 
-* **Hygiène Post-Import :** Aperçu avant importation, détection des doublons et option d'effacement sécurisé du fichier source en clair.
+| Outil                   | Permission        | Comportement                                                                                  | Statut |
+| ----------------------- | ----------------- | --------------------------------------------------------------------------------------------- | ------ |
+| `vault_status`          | —                 | Décrit le jeton : nom, portées, dossiers autorisés, expiration                                | ✅     |
+| `vault_search`          | `read_metadata`   | Recherche titre / identifiant / URL, métadonnées seules                                        | ✅     |
+| `vault_cdp_autofill`    | `blind_fill`      | Remplit une page via Chrome DevTools Protocol, origine vérifiée strictement                    | ✅     |
+| `vault_blind_autofill`  | `blind_fill`      | Même remplissage via l'extension et Native Messaging                                          | 🧭 phase 6 (répond `unavailable`) |
+| `vault_create_and_fill` | `create_and_fill` | Crée un compte avec mot de passe généré et TTL, puis remplit le formulaire d'inscription       | ✅     |
+| `vault_exec`            | `exec_env`        | Lance une commande avec les secrets en variables d'environnement, sortie masquée               | ✅     |
 
----
+Garde-fous :
 
-### 3. Intégration IA Sécurisée (Serveur MCP, CLI & Garde-Fous Zero-Leak)
+- **jetons cloisonnés** : un ou plusieurs dossiers, quatre portées, TTL,
+  révocation immédiate, secret affiché une seule fois ;
+- **origine imposée** : un remplissage dont l'URL ne correspond pas exactement à
+  l'origine demandée est refusé et audité ;
+- **audit complet** : chaque appel écrit une ligne (`succès`, `refusé`,
+  `erreur`) avec l'origine et un diagnostic sans valeur secrète ;
+- **aucun TOTP dans l'environnement** : `vault_exec` n'expose pas `AKOOTI_TOTP`.
 
-Akooti intègre un serveur **Model Context Protocol (MCP)** (`akooti mcp --token ...`) permettant aux agents de codage et navigateurs autonomes (Claude Code, OpenAI Codex, Cursor, Antigravity, OpenClaw) d'utiliser et de créer des identifiants **sans jamais lire un seul secret en clair**.
+Un skill destiné aux agents ([`skills/akooti/SKILL.md`](../skills/akooti/SKILL.md))
+documente le mode d'emploi : quel outil pour quel besoin, ce qu'un refus
+signifie, comment réagir sans redemander un mot de passe à l'utilisateur.
 
-* **Clés d'Accès Cloisonnées par Dossier (*Scoped Tokens* / RBAC) :**
-* Génération de jetons API limités à **un ou plusieurs dossiers précis** (ex: uniquement `Dev Local` et `Agents & MCP`).
-* Permissions granulaires (`read_metadata`, `blind_fill`, `create_and_fill`, `exec_env`), expiration automatique (TTL), confirmation biométrique optionnelle pour les dossiers sensibles, journal d'audit complet et révocation en un clic.
+## 6. Génération de secrets
 
+| Fonction                     | Comportement attendu                                                        | Statut |
+| ---------------------------- | --------------------------------------------------------------------------- | ------ |
+| Mots de passe aléatoires     | `OsRng`, classes de caractères configurables, exclusion des ambigus `0/O`, `1/l/I`, entropie affichée | ✅ |
+| Passphrases mémorisables     | Listes Diceware EFF, séparateur et capitalisation configurables              | ✅     |
+| Disponibilité                | Interface desktop et `vault_create_and_fill` (génération interne)            | ✅     |
 
-* **Injection Aveugle via Extension (`vault_blind_autofill`) :**
-* L'IA récupère uniquement les métadonnées (ID, titre, URL, identifiant) et fournit les **sélecteurs CSS/JavaScript** (`username_selector`, `password_selector`, `totp_selector`, `submit_selector`).
-* Akooti pilote l'extension WXT via *Native Messaging* pour remplir les champs directement dans le DOM (compatible React/Vue/Angular) sans exposer le mot de passe au LLM.
+## 7. Synchronisation et sauvegardes
 
+| Fonction                          | Comportement attendu                                                                 | Statut |
+| --------------------------------- | ------------------------------------------------------------------------------------ | ------ |
+| Base locale primaire              | Le coffre SQLCipher est la source de vérité, utilisable hors ligne                     | ✅     |
+| Sync temps réel (Supabase)        | Projet Supabase propre à l'utilisateur, enregistrements chiffrés côté client, Realtime | 🧭     |
+| Résolution de conflits            | Horodatage logique par enregistrement, suppressions propagées par tombstone           | 🧭     |
+| Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | 🧭 |
+| Export d'urgence                  | Export JSON, chiffré ou en clair après confirmation du mot de passe maître            | 🧭     |
 
-* **Mémorisation des Sélecteurs DOM :** Possibilité d'enregistrer les sélecteurs CSS/JS directement sur chaque entrée (manuellement ou via l'extension) pour accélérer les connexions futures.
-* **Injection Aveugle sans Extension (`vault_cdp_autofill`) :**
-* Connexion directe au **Chrome DevTools Protocol (CDP)** pour les navigateurs pilotés par IA (`agent-browser`, Playwright, Puppeteer, Obscura) dépourvus d'extension.
+## 8. Santé du coffre
 
+| Fonction                        | Comportement attendu                                                                    | Statut |
+| ------------------------------- | --------------------------------------------------------------------------------------- | ------ |
+| Détection de faiblesse          | Score `zxcvbn` local (dictionnaire, dates, suites clavier)                               | 🧭     |
+| Réutilisation et ancienneté     | Repérage des mots de passe partagés entre comptes et des secrets trop anciens            | 🧭     |
+| Vérification de fuite (HIBP)    | `k-Anonymity` : seuls les 5 premiers caractères du SHA-1 sont envoyés                     | 🧭     |
 
-* **Création & Sauvegarde de Comptes de Test (`vault_create_and_fill`) :**
-* Lors des tests d'applications en local, l'IA demande la création d'un compte : Akooti génère un mot de passe fort en RAM, l'enregistre dans le dossier **`Agents & MCP`** (ou le dossier cible autorisé) et remplit le formulaire d'inscription en aveugle.
+## 9. Récapitulatif
 
-
-* **Exécution CLI & Variables d'Environnement Masquées (`vault_exec`) :**
-* Injection des secrets dans la mémoire d'un processus enfant (ex: `docker compose up`, scripts de test, génération `.env` éphémère) avec masquage automatique des valeurs secrètes dans `stdout`/`stderr`.
-
-
-* **Agent Skill Embarqué (`SKILL.md`) :**
-* Fichier d'instructions standardisé prêt à l'emploi pour guider Codex, Claude Code, Cursor et Antigravity sur l'utilisation sécurisée du MCP et du CLI Akooti.
-
-
-
----
-
-### 4. Synchronisation Temps Réel & Sauvegardes Hybrides
-
-* **Base Locale Primaire :** Le coffre SQLCipher local est la source de vérité et fonctionne à 100 % hors ligne.
-* **Synchronisation Temps Réel via Supabase (Optionnelle) :**
-* Connexion à son propre projet Supabase (*Bring Your Own Supabase*) avec chiffrement **Zero-Knowledge** côté client et synchro granulaire par entrée via *Supabase Realtime* (WebSockets).
-
-
-* **Sauvegardes Programmées Multi-Cibles (Cron interne) :**
-* Export automatique périodique (ex: toutes les **1 heure**) d'instantanés chiffrés (`.akooti`) avec politique de rétention ($N$ dernières versions) vers :
-* Dossier local ou lecteur réseau (NAS).
-* **S3** (AWS S3, Cloudflare R2, MinIO, Wasabi).
-* **Google Drive** (OAuth2).
-
-
-
-
-
----
-
-### 5. Génération de Mots de Passe & Audit de Santé du Coffre
-
-* **Générateur Double Mode (GUI, Extension, CLI & MCP) :**
-* Mots de passe aléatoires haute entropie (`OsRng`, exclusion optionnelle des caractères ambigus `0/O`, `1/l/I`).
-* Passphrases mémorisables (Diceware).
-
-
-* **Tableau de Bord "Santé du Coffre" (100 % Offline) :**
-* Détection des mots de passe faibles ou génériques via **`zxcvbn`** (repère les mots du dictionnaire, dates, suites clavier et motifs prévisibles).
-* Détection des mots de passe réutilisés sur plusieurs comptes et alertes d'ancienneté.
-
-
-* **Vérification des Fuites sans Fuite (*k-Anonymity* HIBP) :**
-* Interrogation de *Have I Been Pwned* en n'envoyant que les **5 premiers caractères du hash SHA-1** : Akooti vérifie localement si le mot de passe est compromis sans jamais transmettre le secret ni son hash complet sur Internet.
+| Domaine                    | Implémenté                                           | Cible                                     |
+| -------------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| Coffre                     | multi-dossiers, historique, TTL, TOTP, verrouillage auto | biométrie, passkeys                   |
+| Routage                    | règles complètes + rétroactif                        | —                                         |
+| Import                     | 10 formats + détection automatique + hygiène          | —                                         |
+| IA                         | 5 outils sur 6, jetons cloisonnés, audit              | `vault_blind_autofill` (extension)        |
+| Génération                 | mots de passe + passphrases                          | —                                         |
+| Sync / sauvegardes         | base locale                                          | Supabase E2EE, Cron S3/Drive/local, export |
+| Santé                      | —                                                    | zxcvbn, réutilisation, HIBP k-Anonymity   |

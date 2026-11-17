@@ -1,174 +1,236 @@
-### 1. Architecture Système (Flux & Frontières de Confiance)
+# Architecture
 
-Akooti repose sur un **binaire unique compilé en Rust (`akooti`)** accompagné d'une **extension multi-navigateurs WXT**. Le processus principal agit comme un **daemon local sécurisé** qui détient la clé maître déchiffrée en RAM (`zeroize`) et arbitre tous les accès :
+Akooti est un coffre-fort de mots de passe _local-first_ : un binaire Rust
+unique, une base SQLCipher locale, et — à terme — une extension navigateur. Ce
+document décrit les processus, les frontières de confiance, les flux de données
+et la carte du code. Le périmètre fonctionnel est dans
+[fonctionalites.md](./fonctionalites.md), les règles inviolables dans
+[regles.md](./regles.md).
+
+## 1. Vue d'ensemble
+
+Un seul binaire `akooti`, plusieurs modes ([ADR 0001](./adr/0001-monorepo-rust-bun.md)) :
+
+| Invocation                    | Rôle                                                                   | Statut |
+| ----------------------------- | ---------------------------------------------------------------------- | ------ |
+| `akooti`                      | Interface graphique Tauri + icône de notification + **daemon** local    | ✅     |
+| `akooti mcp --token <jeton>`  | Serveur MCP sur stdio, lancé par l'agent (Claude Code, Codex, Cursor…) | ✅     |
+| `akooti native-host`          | Pont Native Messaging pour l'extension navigateur                      | 🧭 phase 6 |
+| `akooti help` / `version`     | Aide et version, aucun démarrage                                       | ✅     |
+
+Principe directeur : **un seul processus détient la clé maître**. L'interface,
+les sous-processus MCP et (demain) le pont navigateur n'y ont pas accès ; ils
+demandent au daemon d'agir, et le daemon décide.
 
 ```text
-+-----------------------------------------------------------------------------------+
-|                        INTERFACE UTILISATEUR & NAVIGATEURS                        |
-|                                                                                   |
-|  [ App Desktop Tauri ]      [ Extension WXT ]           [ Navigateurs IA / CLI ]  |
-|   (React + TypeScript)       (Chrome/FF/Edge)            (agent-browser, Obscura) |
-+------------+------------------------+-------------------------------+-------------+
-             | Tauri IPC              | Native Messaging              | CDP (9222)
-             | (Capabilities)         | (4-byte length JSON)          | ou Process Env
-             v                        v                               |
-+------------+------------------------+-------------------------------+-------------+
-|                        BINAIRE UNIQUE RUST (`akooti`)                             |
-|                                                                                   |
-|  [ GUI / Tray Daemon ]  <--- IPC Local (interprocess) --->  [ CLI / Serveur MCP ] |
-|        |                     (Unix Socket / Named Pipe)     (`akooti mcp --token`)|
-|        |                                                             |            |
-|        +-----------------------------+-------------------------------+            |
-|                                      v                                            |
-|                     +---------------------------------+                           |
-|                     |      `akooti-core` (Rust)       |                           |
-|                     | - RBAC & Scoped Folder Tokens   |                           |
-|                     | - Crypto (Argon2id + XChaCha20) |                           |
-|                     | - Routage Auto `Dev Local`      |                           |
-|                     | - Audit (zxcvbn + HIBP k-Anon)  |                           |
-|                     +----------------+----------------+                           |
-+--------------------------------------|--------------------------------------------+
-                                       |
-             +-------------------------+-------------------------+
-             v                                                   v
-+-------------------------+                         +-------------------------------+
-|    SQLCipher Local      |                         |  Sync & Backups (Zero-Know.)  |
-| - Dossiers (N:N)        |                         | - Supabase Realtime (E2EE)    |
-| - Entrées & Sélecteurs  |                         | - Cron 1h : Local / S3 / Drive|
-| - Passkeys & TOTP       |                         +-------------------------------+
-+-------------------------+
-
++------------------------------------------------------------------------------------+
+|                              SURFACES UTILISATEUR                                  |
+|                                                                                    |
+|   [ App desktop Tauri ]        [ Agent IA via MCP stdio ]      [ Extension WXT ]   |
+|    React + TypeScript          Claude Code, Codex, Cursor…      Chrome/Edge/FF     |
++---------+----------------------------+-------------------------------+-------------+
+          | Tauri IPC                  | JSON-RPC sur stdio            | Native Msg
+          | (capabilities)             | (`akooti mcp --token …`)      | (phase 6)
+          v                            v                               v
++---------+----------------------------+-------------------------------+-------------+
+|                        BINAIRE UNIQUE RUST (`akooti`)                              |
+|                                                                                    |
+|   [ Interface + tray ]  <--- IPC local (socket Unix 0600) --->  [ Serveur MCP ]    |
+|            |                        version 1, 1 Mio max             (sans clé)    |
+|            +------------------------------+-----------------------------+          |
+|                                           v                                        |
+|                        +------------------------------------+                      |
+|                        |   Daemon : seul détenteur de la clé |                     |
+|                        |   `Arc<VaultRuntime>` partagé       |                     |
+|                        |   verrou auto après 15 min          |                     |
+|                        +----------------+-------------------+                      |
++-----------------------------------------|------------------------------------------+
+                                          v
+                         +----------------------------------+
+                         |          `akooti-core`           |
+                         | Argon2id + XChaCha20-Poly1305    |
+                         | SQLCipher, dossiers N:N, TOTP    |
+                         | jetons MCP, audit, routage       |
+                         +----------------+-----------------+
+                                          v
+                    +----------------------------------------+
+                    |   Local : `vault.meta` + `vault.db`    |
+                    +----------------------------------------+
 ```
 
-#### Principes architecturaux clés :
+Ce qui **n'existe pas encore** : synchronisation Supabase, sauvegardes
+planifiées (S3 / Drive / local), audit de santé du coffre, passkeys, pont
+Native Messaging et transport IPC Windows. Ils sont décrits comme cible et
+marqués 🧭.
 
-1. **Un seul binaire multi-modes (`tauri-plugin-cli`) :**
-* `akooti` $\rightarrow$ Lance l'interface graphique et le daemon en arrière-plan (*System Tray*).
-* `akooti native-host` $\rightarrow$ Sous-processus lancé par le navigateur pour l'extension WXT.
-* `akooti mcp --token <clé>` $\rightarrow$ Sous-processus *headless* lancé par Codex, Claude Code, Cursor ou Antigravity.
+## 2. Processus et détention de la clé
 
+| Processus                 | Détient le mot de passe maître ? | Peut lire un secret ?            | Peut écrire dans le coffre ? |
+| ------------------------- | -------------------------------- | -------------------------------- | ---------------------------- |
+| Binaire `akooti` (GUI)    | oui, tant que le coffre est ouvert | oui, via la fenêtre de révélation | oui                          |
+| Serveur MCP (stdout)      | **non**                          | **non** — il ne reçoit que des issues de remplissage | non  |
+| Pont Native Messaging     | **non** (même contrat que MCP)   | non                              | non                          |
+| Navigateur cible (CDP)    | non                              | reçoit les valeurs dans le DOM   | —                            |
+| Processus enfant (`vault_exec`) | non                        | reçoit des variables d'environnement, jamais sur son stdout | — |
 
-2. **Communication Inter-Processus Isolée (`ipc_daemon.rs`) :**
-Les sous-processus `native-host` et `mcp` n'ont pas accès directement à la clé maître : ils interrogent le daemon principal via un socket local restreint à l'utilisateur OS (`chmod 600` / ACL Windows), qui vérifie les permissions du jeton avant d'exécuter l'injection aveugle.
-3. **Zero-Leak garantit :**
-Les mots de passe ne traversent jamais la frontière MCP vers le LLM : ils vont directement de la RAM de `akooti` vers l'extension WXT, le port CDP du navigateur headless, ou l'environnement mémoire d'un processus enfant (`vault_exec`).
+Conséquences directes :
 
-4. **Amorçage local du coffre :**
-Le shell Tauri résout uniquement `app_data_dir` et transmet ce chemin au cœur.
-`akooti-core` gère ensuite `vault.meta` (sel et paramètres Argon2id publics) et
-`vault.db` (SQLCipher), puis applique le verrouillage d'inactivité et les
-événements de reprise sans dépendance Tauri dans le crate métier.
+- un agent IA compromis ne peut pas extraire un mot de passe : il ne dispose que
+  d'identifiants de métadonnées et de verbes d'action ;
+- arrêter le binaire principal suffit à couper tout accès : le socket disparaît
+  et les jetons deviennent inutilisables (réponse `daemon_unavailable`).
 
----
+## 3. Cycle de vie du coffre
 
-### 2. Structure Complète du Monorepo (`akooti/`)
+```text
+création        `vault.meta` (sel + paramètres Argon2id) + `vault.db` (SQLCipher)
+déverrouillage  mot de passe -> Argon2id -> clé de chiffrement SQLCipher
+                l'en-tête public est relu et comparé aux paramètres stockés
+session         la clé vit en RAM (`Zeroizing`), partagée par `Arc<VaultRuntime>`
+verrouillage    inactivité 15 min, mise en veille, ou action explicite
+                la clé est effacée ; les commandes répondent `locked`
+```
+
+- L'en-tête `vault.meta` est **public par conception** : il ne contient que ce
+  qu'il faut pour dériver la clé ([ADR 0004](./adr/0004-vault-bootstrap-header.md)).
+- Le shell Tauri ne fait que résoudre `app_data_dir` et le transmettre au cœur :
+  aucun chemin n'est codé en dur dans `akooti-core`.
+- Le verrouillage est piloté par le daemon, pas par l'interface : fermer la
+  fenêtre ne déverrouille ni ne verrouille rien.
+
+## 4. Flux de données
+
+### 4.1 Recherche (`vault_search`)
+
+```text
+agent -> serveur MCP -> socket -> daemon -> akooti-core (mcp_search)
+                                     -> métadonnées seulement (jamais de secret)
+```
+
+Chaque requête porte le jeton ; le daemon vérifie signature, expiration,
+révocation, portées et dossiers autorisés **avant** toute lecture, puis écrit la
+ligne d'audit.
+
+### 4.2 Remplissage aveugle (`vault_cdp_autofill`)
+
+```text
+agent (itemId, origin, selectors?) -> daemon -> plan de remplissage (RAM)
+   -> sélection de la cible CDP dont l'origine correspond EXACTEMENT
+   -> programme JS injecté dans la page (username, password, totp, submit)
+   -> compte-rendu : statut, champs remplis, soumission — aucune valeur
+```
+
+- `origin` non concordante : refus, audit `error`, aucune tentative.
+- Sélecteurs stockés sur l'entrée, surchargés par ceux de l'agent quand il en
+  fournit (`selectors`).
+- Statuts : `filled`, `partial` (aucun sélecteur trouvé), `failed`,
+  `unavailable` (extension non branchée).
+
+### 4.3 Compte éphémère (`vault_create_and_fill`)
+
+```text
+agent -> daemon -> akooti-core : mot de passe généré (OsRng) + entrée créée
+                -> remplissage du formulaire d'inscription (même moteur CDP)
+                -> UNE ligne d'audit, écrite une fois l'issue connue
+```
+
+L'entrée porte `created_by_agent` et `expires_at` (TTL de 60 s à 30 jours) ; la
+purge périodique supprime les comptes de test expirés.
+
+### 4.4 Injection CLI (`vault_exec`)
+
+```text
+agent (itemId, argv[]) -> daemon -> variables d'environnement du processus enfant
+   AKOOTI_USERNAME, AKOOTI_PASSWORD, AKOOTI_<CHAMP> pour chaque champ personnalisé
+   -> stdout/stderr filtrés : chaque valeur injectée devient `***`
+```
+
+Aucun shell n'est interposé : `argv[0]` est le programme. Une variable n'est
+développée que si l'agent demande explicitement un shell. Il n'existe
+volontairement **pas** de `AKOOTI_TOTP`.
+
+### 4.5 Audit
+
+Toutes les actions IA passent par `mcp_audit_logs` : `vault_search`,
+`cdp_autofill`, `create_and_fill`, `exec_env`, et `access_denied` pour les
+refus. Une ligne ne contient jamais de valeur secrète, seulement une origine, un
+identifiant technique et un diagnostic court.
+
+## 5. Contrats techniques
+
+| Contrat            | Règle                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| Transport IPC      | socket Unix, permission `0600`, dossier réservé à l'utilisateur ([ADR 0006](./adr/0006-transport-ipc-socket-unix.md)) |
+| Emplacement        | `AKOOTI_SOCKET` sinon `$XDG_RUNTIME_DIR/akooti/daemon.sock`                              |
+| Cadrage            | JSON préfixé par une longueur de 4 octets (LE), plafond **1 Mio** par trame             |
+| Version de protocole | `1` ; incrémentée dès qu'un champ change de sens                                       |
+| Erreurs            | codes stables : `forbidden`, `locked`, `not_found`, `invalid_credentials`, `invalid_input`, `internal`, `daemon_unavailable` |
+| Jetons MCP         | `ak_mcp_` + 64 caractères hexadécimaux ; stockés en SHA-256, comparés en temps constant  |
+| Portées            | `read_metadata`, `blind_fill`, `create_and_fill`, `exec_env`                             |
+| Secrets en Rust    | `zeroize::Zeroizing` pour toute clé, dérivée ou valeur déchiffrée                        |
+
+## 6. Carte du code
 
 ```text
 akooti/
-├── Cargo.toml                           # Workspace Rust global (crates/* + src-tauri)
-├── package.json                         # Workspace Bun ("apps/*", "packages/*")
-├── bun.lock                             # Lockfile Bun (commité)
-├── .gitignore
-├── LICENSE                              # Licence Open Source (MIT / AGPLv3)
-│
-├── skills/
-│   └── akooti/
-│       └── SKILL.md                     # Guide d'utilisation MCP/CLI pour Codex, Claude Code, Antigravity
-│
-├── crates/                              # Cœur métier Rust (0 dépendance UI / Tauri)
-│   ├── akooti-core/                     # Cryptographie, SQLCipher, routage, audit, sync & imports
-│   │   ├── Cargo.toml
-│   │   ├── migrations/
-│   │   │   └── 001_init.sql             # Schéma SQLCipher (dossiers système, item_folders N:N, règles)
+├── crates/
+│   ├── akooti-core/            # métier pur : aucune dépendance Tauri / React
+│   │   ├── migrations/001_init.sql
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── crypto.rs                # Argon2id, XChaCha20-Poly1305, gestion RAM zeroize
-│   │       ├── db.rs                    # Requêtes SQLCipher, multi-dossiers, historique, TTL tests
-│   │       ├── header.rs                # En-tête public d'amorçage du coffre
-│   │       ├── session.rs               # Verrouillage et compteur d'inactivité
-│   │       ├── vault.rs                 # Cycle de vie et API métier du coffre
-│   │       ├── routing/                 # Moteur de règles auto vers `Dev Local` (.local, .test, etc.)
-│   │       ├── generator.rs             # Générateur aléatoire (OsRng) & Passphrases Diceware
-│   │       ├── health.rs                # Audit offline (zxcvbn, doublons, ancienneté) + HIBP k-Anonymity
-│   │       ├── totp.rs                  # Génération et vérification des codes 2FA TOTP
-│   │       ├── passkeys.rs              # Signatures WebAuthn / FIDO2 (P-256 / Ed25519)
-│   │       ├── rbac.rs                  # Validation des clés API cloisonnées par dossier (TTL, scopes)
-│   │       ├── sync_supabase.rs         # Synchronisation temps réel E2EE via Supabase Realtime
-│   │       ├── backup/
-│   │       │   ├── mod.rs               # Planificateur Cron (toutes les 1h) & rotation
-│   │       │   ├── local.rs             # Sauvegarde dossier local / NAS
-│   │       │   ├── s3.rs                # Sauvegarde S3 (AWS, Cloudflare R2, MinIO)
-│   │       │   └── gdrive.rs            # Sauvegarde Google Drive (OAuth2)
-│   │       └── importers/
-│   │           ├── mod.rs               # Modèle normalisé ImportBundle + routage Dev Local + dédup
-│   │           ├── buttercup.rs         # Import natif .bcup (AES-256-CBC/HMAC) & .csv
-│   │           ├── bitwarden.rs         # Import .json (chiffré ou clair)
-│   │           ├── protonpass.rs        # Import .json / .csv
-│   │           ├── keepass.rs           # Import natif .kdbx (v3/v4) & .xml
-│   │           ├── onepassword.rs       # Import .1pux & .csv
-│   │           └── browser_csv.rs       # Import CSV Chrome, Brave, Edge, Firefox
-│   │
-│   └── akooti-mcp/                      # Serveur MCP & moteurs d'injection Zero-Leak
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs
-│           ├── server.rs                # Serveur MCP stdio (search, blind_autofill, create_and_fill, exec)
-│           ├── cdp_injector.rs          # Injection directe via Chrome DevTools Protocol (agent-browser, Obscura)
-│           └── env_exec.rs              # Exécution CLI avec injection env et masquage des logs
-│
-├── src-tauri/                           # Application Desktop Tauri v2 (GUI + CLI + Daemon IPC)
-│   ├── Cargo.toml
-│   ├── tauri.conf.json                  # Config Tauri, permissions, sous-commandes CLI (`mcp`, `native-host`)
-│   ├── capabilities/
-│   │   └── default.json                 # Permissions strictes entre le frontend React et Rust
-│   ├── icons/
+│   │       ├── crypto.rs           Argon2id, XChaCha20-Poly1305, AAD, zeroize
+│   │       ├── db.rs               ouverture SQLCipher, migrations, seeds
+│   │       ├── header.rs           en-tête public `vault.meta`
+│   │       ├── session.rs          cycle verrouillage / inactivité
+│   │       ├── vault.rs            API métier du coffre
+│   │       ├── folders.rs          dossiers système et personnels
+│   │       ├── items/              CRUD, révélation, historique, maintenance
+│   │       ├── routing/            règles `Dev Local` (suffixe, hôte, CIDR, regex)
+│   │       ├── generator.rs        mots de passe OsRng, passphrases EFF
+│   │       ├── totp.rs             codes TOTP (RFC 6238)
+│   │       ├── importers/          Buttercup, Bitwarden, Proton, KeePass, 1Password, CSV
+│   │       ├── mcp/                jetons (SHA-256, portées), store, audit
+│   │       └── vault_mcp.rs        opérations cloisonnées + plans d'injection
+│   ├── akooti-ipc/             # protocole local : framing, `Request`/`Response`, socket, client
+│   └── akooti-mcp/             # serveur MCP stdio (rmcp) : six outils, zéro clé
+├── src-tauri/                  # shell desktop : CLI, tray, daemon, commandes IPC
 │   └── src/
-│       ├── main.rs                      # Point d'entrée : route vers GUI, `akooti mcp` ou `akooti native-host`
-│       ├── ipc_daemon.rs                # Serveur IPC local (interprocess : Unix Socket / Named Pipe)
-│       ├── native_host.rs               # Protocole stdin/stdout 4-bytes length-prefixed pour WXT
-│       ├── native_register.rs           # Enregistrement auto des manifestes Native Messaging (Linux/macOS/Win)
-│       ├── biometrics.rs                # Déverrouillage Windows Hello, Touch ID, Linux Polkit
-│       ├── tray.rs                      # Icône barre des tâches (maintient le daemon actif)
-│       └── commands/                    # Commandes IPC exposées à l'interface Desktop
-│           ├── vault.rs                 # CRUD dossiers (multi-appartenance), entrées, sélecteurs CSS
-│           ├── routing.rs               # Gestion des règles `Dev Local` & tri rétroactif
-│           ├── mcp_tokens.rs            # Création/révocation des clés par dossier & logs d'audit
-│           ├── sync_backup.rs           # Configuration Supabase, S3, Google Drive, Local
-│           └── import_export.rs         # Importation multi-formats & exportation d'urgence
-│
-├── packages/
-│   └── shared/                          # Contrats TypeScript partagés (Desktop <-> Extension)
-│       ├── package.json
-│       └── src/
-│           ├── models.ts                # Types Folder, VaultItem, RoutingRule, HealthReport
-│           └── protocol.ts              # Schémas des messages Native Messaging & WebAuthn
-│
-└── apps/
-    ├── desktop/                         # Interface graphique Tauri (React + TypeScript + Tailwind)
-    │   ├── package.json
-    │   └── src/
-    │       ├── App.tsx
-    │       ├── components/
-    │       │   ├── SidebarFolders.tsx   # Dossiers système (`Personnel`, `Dev Local`, `Agents & MCP`) + perso
-    │       │   ├── ItemDetail.tsx       # Vue entrée, multi-dossiers, TOTP live, sélecteurs CSS enregistrés
-    │       │   ├── GeneratorModal.tsx   # Générateur mots de passe & passphrases Diceware
-    │       │   └── HealthDashboard.tsx  # Audit zxcvbn, doublons et fuites HIBP
-    │       └── pages/
-    │           ├── VaultPage.tsx        # Vue principale du coffre
-    │           ├── McpAccessPage.tsx    # Gestion des jetons IA par dossier & journal d'audit
-    │           ├── SyncBackupPage.tsx   # Configuration Supabase temps réel & Cron S3/Drive/Local
-    │           ├── RoutingRulesPage.tsx # Règles de sous-domaines locaux & tri rétroactif
-    │           └── ImportPage.tsx       # Assistant d'importation (case `Dev Local` cochée par défaut)
-    │
-    └── extension/                       # Extension multi-navigateurs WXT
-        ├── package.json
-        ├── wxt.config.ts                # Config Manifest V3/V2 (Chrome, Firefox, Edge, Brave, Safari)
-        └── entrypoints/
-            ├── background.ts            # Service Worker (pont Native Messaging <-> binaire Akooti)
-            ├── content.ts               # ISOLATED world : détection formulaires, capture & injection sélecteurs
-            ├── webauthn.content.ts      # MAIN world : interception Passkeys (navigator.credentials)
-            └── popup/                   # Interface rapide de l'extension
-                ├── index.html
-                └── App.tsx
-
+│       ├── cli.rs                  routage des modes avant toute fenêtre
+│       ├── headless.rs             modes `mcp` et `native-host`
+│       ├── vault_runtime.rs        `Arc<VaultRuntime>`, verrou auto 15 min
+│       ├── daemon/                 serveur IPC + inject.rs (CDP) + exec.rs (masquage)
+│       └── commands/               surface IPC typée (vault, items, folders, generator,
+│                                   routing, import/export, clipboard, mcp, system)
+├── apps/
+│   ├── desktop/                # React + Vite : unlock, coffre, générateur, import,
+│   │                           # routage, page « Accès IA »
+│   └── extension/              # WXT : service worker seul (phase 6)
+└── packages/shared/            # types et protocoles TypeScript partagés
 ```
+
+Les modules suivants sont **ciblés mais absents** et ne doivent pas être
+supposés présents : `health.rs`, `passkeys.rs`, `sync_supabase.rs`, `backup/`,
+`content.ts` / `webauthn.content.ts` de l'extension. Voir
+[fonctionalites.md](./fonctionalites.md) pour leur statut.
+
+## 7. Décisions structurantes
+
+| ADR                                                     | Décision                                                    |
+| ------------------------------------------------------- | ----------------------------------------------------------- |
+| [0001](./adr/0001-monorepo-rust-bun.md)                 | Monorepo Cargo + Bun, un binaire multi-modes                |
+| [0002](./adr/0002-sqlcipher-local-vault.md)             | Coffre local SQLCipher + chiffrement de champ XChaCha20     |
+| [0003](./adr/0003-mcp-stdio-blind-injection.md)         | MCP stdio, daemon IPC et injection aveugle                  |
+| [0004](./adr/0004-vault-bootstrap-header.md)            | En-tête public d'amorçage du coffre                         |
+| [0005](./adr/0005-biometrie-deverrouillage.md)          | Biométrie : trait d'union présent, fournisseur non branché  |
+| [0006](./adr/0006-transport-ipc-socket-unix.md)         | Socket Unix natif, named pipe Windows différé               |
+| [0007](./adr/0007-fills-et-secrets-totp-courts.md)      | Remplissage d'un compte neuf, secrets TOTP courts, audit fidèle |
+
+## 8. Limites connues
+
+| Limite                                                        | Référence                          |
+| ------------------------------------------------------------- | ---------------------------------- |
+| `vault_blind_autofill` répond `unavailable` : l'extension n'est pas branchée | phase 6              |
+| Pas de transport IPC Windows (named pipe)                     | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
+| Aucun fournisseur biométrique branché ; l'interface masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
+| Les secrets TOTP de moins de 128 bits sont acceptés (services réels) | [ADR 0007](./adr/0007-fills-et-secrets-totp-courts.md) |
+| `SelectorOverride.submit: null` ne désactive pas la soumission (indistinguable d'« absent ») | `daemon/inject.rs` |
+| Synchronisation, sauvegardes, audit de santé, passkeys : non implémentés | phases ultérieures |

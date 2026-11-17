@@ -1,314 +1,213 @@
-Voici les deux schémas SQL complets et prêts pour la production pour **Akooti** :
+# Schémas de données
 
-1. **Le schéma SQLCipher local (`schema_local.sql`) :** Base relationnelle chiffrée au niveau fichier (AES-256 via SQLCipher) + double chiffrement applicatif (`XChaCha20-Poly1305`) sur les champs les plus critiques en RAM. Il intègre les **dossiers système par défaut** (`Personnel`, `Dev Local`, `Agents & MCP`), la **relation N:N multi-dossiers (`item_folders`)**, les **sélecteurs CSS/JS mémorisés**, l'**historique des mots de passe**, les **jetons MCP cloisonnés** et les **règles de routage local**.
-2. **Le schéma Supabase (`schema_supabase.sql`) :** Architecture **100 % Zero-Knowledge (E2EE)**. Supabase ne stocke jamais de texte en clair (ni titres, ni URLs, ni noms de dossiers) : chaque enregistrement est un **blob binaire/base64 chiffré côté client** accompagné uniquement des métadonnées techniques nécessaires à la synchronisation temps réel (*Supabase Realtime*), à la résolution de conflits (*Last-Write-Wins*) et aux suppressions logiques (*tombstones*).
+Akooti manipule deux schémas :
 
-L'amorçage d'un coffre utilise `vault.meta` (sel et paramètres Argon2id) et
-`vault.db` (SQLCipher). Les paramètres KDF sont dupliqués dans `vault_meta` après
-ouverture et vérifiés contre l'en-tête public ; voir
-[ADR 0004](adr/0004-vault-bootstrap-header.md).
+1. **Local (SQLCipher)** — ✅ implémenté. C'est la source de vérité du produit :
+   une base chiffrée au niveau fichier (AES-256 via SQLCipher) **et** un
+   chiffrement applicatif XChaCha20-Poly1305 sur chaque champ sensible, en RAM.
+2. **Supabase (E2EE)** — 🧭 conception cible, non implémentée. Le serveur ne voit
+   que des blobs chiffrés côté client, plus les métadonnées techniques
+   nécessaires à la synchronisation temps réel.
+
+> **Source de vérité du schéma local :**
+> [`crates/akooti-core/migrations/001_init.sql`](../crates/akooti-core/migrations/001_init.sql).
+> Ce document explique les choix, l'ordre des colonnes et les invariants ; en cas
+> de divergence, la migration gagne.
 
 ---
 
-### 1. Schéma SQLCipher Local (`crates/akooti-core/migrations/001_init.sql`)
+## 1. Amorçage du coffre
 
-```sql
--- ============================================================================
--- AKOOTI - SCHÉMA SQLCIPHER LOCAL (v1.0)
--- ============================================================================
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
+Un coffre est un **couple de fichiers** dans le dossier de données de
+l'application (`VaultPaths::under_app_data`) :
 
--- ----------------------------------------------------------------------------
--- 1. MÉTADONNÉES DU COFFRE & CONFIGURATION CRYPTOGRAPHIQUE
--- ----------------------------------------------------------------------------
-CREATE TABLE vault_meta (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    vault_id TEXT NOT NULL UNIQUE,               -- UUIDv4 du coffre (partagé avec Supabase)
-    kdf_algorithm TEXT NOT NULL DEFAULT 'argon2id',
-    kdf_salt BLOB NOT NULL,                      -- Sel 16 octets pour Argon2id
-    kdf_memory_kib INTEGER NOT NULL DEFAULT 65536,
-    kdf_iterations INTEGER NOT NULL DEFAULT 3,
-    kdf_parallelism INTEGER NOT NULL DEFAULT 4,
-    wrapped_master_key BLOB NOT NULL,            -- Clé maître chiffrée par la KEK dérivée
-    wrapped_key_nonce BLOB NOT NULL,             -- Nonce 24 octets (XChaCha20)
-    biometrics_enabled INTEGER NOT NULL DEFAULT 0,
-    auto_lock_minutes INTEGER NOT NULL DEFAULT 15,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
+| Fichier      | Contenu                                                       | Sensible ? |
+| ------------ | ------------------------------------------------------------- | ---------- |
+| `vault.meta` | En-tête public d'amorçage : magic, version, algorithme, sel, paramètres Argon2id | non (par conception) |
+| `vault.db`   | Base SQLCipher (WAL)                                           | oui — chiffrée |
 
--- ----------------------------------------------------------------------------
--- 2. DOSSIERS (Système & Utilisateur)
--- ----------------------------------------------------------------------------
-CREATE TABLE folders (
-    id TEXT PRIMARY KEY,                         -- UUIDv4
-    parent_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    slug TEXT NULL UNIQUE,                       -- Identifiant stable pour dossiers système
-    icon TEXT NOT NULL DEFAULT 'folder',
-    color TEXT NULL,
-    is_system INTEGER NOT NULL DEFAULT 0,        -- 1 = non supprimable/renommable
-    require_biometric_for_mcp INTEGER NOT NULL DEFAULT 0, -- Garde-fou supplémentaire
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    deleted_at INTEGER NULL                      -- Soft-delete (tombstone pour sync)
-);
+L'en-tête fait **40 octets** et n'est écrit qu'une fois, en `create_new` :
 
--- Insertion des 3 dossiers système par défaut à l'initialisation
-INSERT INTO folders (id, parent_id, name, slug, icon, color, is_system, created_at, updated_at)
-VALUES
-    ('00000000-0000-4000-8000-000000000001', NULL, 'Personnel',    'personal',  'user',     '#3b82f6', 1, strftime('%s','now'), strftime('%s','now')),
-    ('00000000-0000-4000-8000-000000000002', NULL, 'Dev Local',    'dev-local', 'terminal', '#10b981', 1, strftime('%s','now'), strftime('%s','now')),
-    ('00000000-0000-4000-8000-000000000003', NULL, 'Agents & MCP', 'agents-mcp','bot',      '#8b5cf6', 1, strftime('%s','now'), strftime('%s','now'));
+| Offset | Taille | Champ                                                     |
+| ------ | ------ | --------------------------------------------------------- |
+| 0…7    | 8      | magic `AKOOTI01`                                          |
+| 8      | 1      | version de format (`1`)                                   |
+| 9      | 1      | algorithme KDF (`1` = Argon2id)                           |
+| 10…11  | 2      | réservé                                                   |
+| 12…27  | 16     | sel Argon2id                                              |
+| 28…31  | 4      | `memory_kib` (LE, défaut 65 536 = 64 Mio)                 |
+| 32…35  | 4      | `iterations` (LE, défaut 3)                               |
+| 36…39  | 4      | `parallelism` (LE, défaut 4)                              |
 
--- ----------------------------------------------------------------------------
--- 3. ENTRÉES DU COFFRE (Identifiants, Clés API, Notes, Passkeys)
--- ----------------------------------------------------------------------------
-CREATE TABLE vault_items (
-    id TEXT PRIMARY KEY,                         -- UUIDv4
-    item_type TEXT NOT NULL DEFAULT 'login',     -- 'login' | 'api_key' | 'note' | 'env_set'
-    title TEXT NOT NULL,
-    primary_url TEXT NULL,                       -- URL principale pour matching rapide
-    username TEXT NULL,
-    
-    -- Secrets chiffrés individuellement en RAM avec XChaCha20-Poly1305
-    encrypted_password BLOB NULL,
-    password_nonce BLOB NULL,
-    encrypted_totp_secret BLOB NULL,
-    totp_nonce BLOB NULL,
-    encrypted_notes BLOB NULL,
-    notes_nonce BLOB NULL,
-    
-    -- Sélecteurs DOM mémorisés pour l'injection aveugle (Extension WXT & CDP)
-    username_selector TEXT NULL,                 -- ex: "input[name='email']"
-    password_selector TEXT NULL,                 -- ex: "#password-input"
-    totp_selector TEXT NULL,                     -- ex: "input[autocomplete='one-time-code']"
-    submit_selector TEXT NULL,                   -- ex: "button[type='submit']"
-    
-    -- Métadonnées d'audit & hygiène (calculées localement)
-    zxcvbn_score INTEGER NULL,                   -- Score 0 à 4
-    password_sha1_prefix TEXT NULL,              -- 5 premiers chars SHA-1 (check HIBP)
-    is_compromised INTEGER NOT NULL DEFAULT 0,
-    password_updated_at INTEGER NULL,
-    
-    -- Traçabilité IA & Éphémérité (comptes de test créés par MCP/CLI)
-    created_by_agent TEXT NULL,                  -- Nom du token MCP créateur (si applicable)
-    expires_at INTEGER NULL,                     -- TTL optionnel pour purge auto des tests
-    
-    favorite INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    deleted_at INTEGER NULL                      -- Soft-delete pour synchronisation
-);
+Contraintes validées à la lecture (`KdfParams::validate`) : mémoire entre 8 Mio
+et 1 Gio, itérations entre 1 et 100, parallélisme entre 1 et 64. Un en-tête
+tronqué, un magic inattendu ou une version inconnue lèvent `CorruptVault` — le
+coffre n'est jamais ouvert « au mieux ». Voir
+[ADR 0004](./adr/0004-vault-bootstrap-header.md).
 
-CREATE INDEX idx_items_primary_url ON vault_items(primary_url) WHERE deleted_at IS NULL;
-CREATE INDEX idx_items_updated_at ON vault_items(updated_at);
+Les paramètres KDF sont **dupliqués** dans `vault_meta` après ouverture, puis
+vérifiés contre l'en-tête public : une incohérence est traitée comme une
+corruption, pas comme une migration silencieuse.
 
--- ----------------------------------------------------------------------------
--- 4. RELATION MULTI-DOSSIERS (Many-to-Many : 1 entrée -> N dossiers)
--- ----------------------------------------------------------------------------
-CREATE TABLE item_folders (
-    item_id TEXT NOT NULL REFERENCES vault_items(id) ON DELETE CASCADE,
-    folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-    added_at INTEGER NOT NULL,
-    PRIMARY KEY (item_id, folder_id)
-);
+### Chiffrement des champs
 
-CREATE INDEX idx_item_folders_folder ON item_folders(folder_id);
+- Algorithme : XChaCha20-Poly1305, nonce de 24 octets, clé de 32 octets.
+- Chaque valeur chiffrée est stockée en **deux colonnes** : `encrypted_*`
+  (ciphertext + tag) et `*_nonce`.
+- L'**AAD** lie le chiffré à sa position logique, ce qui empêche de déplacer un
+  blob d'une entrée à l'autre :
 
--- ----------------------------------------------------------------------------
--- 5. URIs MULTIPLES, CHAMPS PERSONNALISÉS & HISTORIQUE DES MOTS DE PASSE
--- ----------------------------------------------------------------------------
-CREATE TABLE item_uris (
-    id TEXT PRIMARY KEY,
-    item_id TEXT NOT NULL REFERENCES vault_items(id) ON DELETE CASCADE,
-    uri TEXT NOT NULL,
-    match_type TEXT NOT NULL DEFAULT 'domain'    -- 'domain' | 'host' | 'starts_with' | 'exact' | 'regex'
-);
-
-CREATE TABLE item_custom_fields (
-    id TEXT PRIMARY KEY,
-    item_id TEXT NOT NULL REFERENCES vault_items(id) ON DELETE CASCADE,
-    field_name TEXT NOT NULL,                    -- ex: "DATABASE_URL", "API_SECRET"
-    is_secret INTEGER NOT NULL DEFAULT 1,
-    encrypted_value BLOB NOT NULL,
-    value_nonce BLOB NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE password_history (
-    id TEXT PRIMARY KEY,
-    item_id TEXT NOT NULL REFERENCES vault_items(id) ON DELETE CASCADE,
-    encrypted_password BLOB NOT NULL,
-    password_nonce BLOB NOT NULL,
-    changed_at INTEGER NOT NULL
-);
-
--- ----------------------------------------------------------------------------
--- 6. PASSKEYS (WebAuthn / FIDO2)
--- ----------------------------------------------------------------------------
-CREATE TABLE passkeys (
-    id TEXT PRIMARY KEY,                         -- UUIDv4 interne
-    item_id TEXT NULL REFERENCES vault_items(id) ON DELETE SET NULL,
-    credential_id BLOB NOT NULL UNIQUE,          -- ID WebAuthn brut
-    rp_id TEXT NOT NULL,                         -- Relying Party ID (ex: "github.com")
-    rp_name TEXT NOT NULL,
-    user_handle BLOB NOT NULL,
-    user_name TEXT NOT NULL,
-    encrypted_private_key BLOB NOT NULL,         -- Clé privée P-256 / Ed25519 chiffrée
-    private_key_nonce BLOB NOT NULL,
-    sign_count INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    last_used_at INTEGER NULL,
-    deleted_at INTEGER NULL
-);
-
-CREATE INDEX idx_passkeys_rp_id ON passkeys(rp_id) WHERE deleted_at IS NULL;
-
--- ----------------------------------------------------------------------------
--- 7. RÈGLES DE ROUTAGE AUTOMATIQUE VERS "DEV LOCAL"
--- ----------------------------------------------------------------------------
-CREATE TABLE local_routing_rules (
-    id TEXT PRIMARY KEY,
-    pattern TEXT NOT NULL UNIQUE,                -- ex: "*.local", "*.test", "*.localhost", "127.0.0.1"
-    pattern_type TEXT NOT NULL DEFAULT 'suffix', -- 'suffix' | 'exact_host' | 'cidr' | 'regex'
-    target_folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL
-);
-
--- Règles par défaut activées dès la création du coffre (et lors des imports)
-INSERT INTO local_routing_rules (id, pattern, pattern_type, target_folder_id, is_default, enabled, created_at)
-VALUES
-    ('10000000-0000-4000-8000-000000000001', '.local',      'suffix',     '00000000-0000-4000-8000-000000000002', 1, 1, strftime('%s','now')),
-    ('10000000-0000-4000-8000-000000000002', '.test',       'suffix',     '00000000-0000-4000-8000-000000000002', 1, 1, strftime('%s','now')),
-    ('10000000-0000-4000-8000-000000000003', '.localhost',  'suffix',     '00000000-0000-4000-8000-000000000002', 1, 1, strftime('%s','now')),
-    ('10000000-0000-4000-8000-000000000004', 'localhost',   'exact_host', '00000000-0000-4000-8000-000000000002', 1, 1, strftime('%s','now')),
-    ('10000000-0000-4000-8000-000000000005', '127.0.0.1',   'exact_host', '00000000-0000-4000-8000-000000000002', 1, 1, strftime('%s','now'));
-
--- ----------------------------------------------------------------------------
--- 8. SÉCURITÉ IA : JETONS MCP CLOISONNÉS (RBAC) & JOURNAL D'AUDIT
--- ----------------------------------------------------------------------------
-CREATE TABLE mcp_tokens (
-    id TEXT PRIMARY KEY,                         -- UUIDv4
-    name TEXT NOT NULL,                          -- ex: "Claude Code - Docker Local"
-    token_hash TEXT NOT NULL UNIQUE,             -- Hash BLAKE3/SHA-256 du secret (jamais stocké en clair)
-    token_prefix TEXT NOT NULL,                  -- 8 premiers chars pour affichage UI ("ak_mcp_8f9a...")
-    
-    -- Permissions granulaires (JSON array: ["read_metadata", "blind_fill", "create_and_fill", "exec_env"])
-    scopes_json TEXT NOT NULL,
-    
-    -- Dossier cible par défaut lors d'un `vault_create_and_fill`
-    default_create_folder_id TEXT NULL REFERENCES folders(id) ON DELETE SET NULL,
-    
-    expires_at INTEGER NULL,                     -- TTL optionnel
-    revoked_at INTEGER NULL,
-    last_used_at INTEGER NULL,
-    created_at INTEGER NOT NULL
-);
-
--- Dossiers autorisés pour chaque jeton MCP (cloisonnement strict)
-CREATE TABLE mcp_token_folders (
-    token_id TEXT NOT NULL REFERENCES mcp_tokens(id) ON DELETE CASCADE,
-    folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-    PRIMARY KEY (token_id, folder_id)
-);
-
--- Journal d'audit immuable des actions IA
-CREATE TABLE mcp_audit_logs (
-    id TEXT PRIMARY KEY,
-    token_id TEXT NULL REFERENCES mcp_tokens(id) ON DELETE SET NULL,
-    action TEXT NOT NULL,                        -- 'vault_search' | 'blind_autofill' | 'cdp_autofill' | 'create_and_fill' | 'exec_env' | 'access_denied'
-    target_item_id TEXT NULL,
-    target_folder_id TEXT NULL,
-    target_origin TEXT NULL,                     -- URL ou commande exécutée
-    status TEXT NOT NULL,                        -- 'success' | 'denied' | 'error'
-    details TEXT NULL,
-    created_at INTEGER NOT NULL
-);
-
-CREATE INDEX idx_audit_created_at ON mcp_audit_logs(created_at DESC);
-
--- ----------------------------------------------------------------------------
--- 9. CONFIGURATION DES SAUVEGARDES PROGRAMMÉES (Cron Local, S3, Google Drive)
--- ----------------------------------------------------------------------------
-CREATE TABLE backup_targets (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    provider TEXT NOT NULL,                      -- 'local' | 's3' | 'gdrive'
-    encrypted_config BLOB NOT NULL,              -- Chemin, bucket S3, clés API ou token OAuth chiffrés
-    config_nonce BLOB NOT NULL,
-    interval_minutes INTEGER NOT NULL DEFAULT 60,-- ex: 60 min (1h)
-    retention_count INTEGER NOT NULL DEFAULT 24, -- Garde les 24 derniers backups
-    enabled INTEGER NOT NULL DEFAULT 1,
-    last_run_at INTEGER NULL,
-    last_status TEXT NULL,
-    created_at INTEGER NOT NULL
-);
-
+```text
+akooti:v1:item:{item_id}:field:{password|totp|notes}
+akooti:v1:item:{item_id}:custom:{custom_field_id}
 ```
 
 ---
 
-### 2. Schéma Supabase E2EE (`supabase/migrations/20261115_akooti_e2ee.sql`)
+## 2. Schéma local
 
-Sur Supabase, **zéro donnée sensible n'est visible** (même par un administrateur de la base PostgreSQL). Le client Rust sérialise chaque objet (dossier, entrée complète avec ses sélecteurs et ses `folder_ids`, ou passkey), le chiffre avec **XChaCha20-Poly1305** et pousse uniquement `ciphertext` + `nonce`.
+### 2.1 `vault_meta` — métadonnées du coffre (1 ligne)
+
+`id = 1` par contrainte. Porte `vault_id`, les paramètres KDF dupliqués depuis
+l'en-tête (`kdf_salt`, `kdf_memory_kib`, `kdf_iterations`, `kdf_parallelism`),
+la clé maître encapsulée (`wrapped_master_key` + `wrapped_key_nonce`),
+`biometrics_enabled` (trait présent, fournisseur non branché) et
+`auto_lock_minutes` (défaut 15).
+
+### 2.2 `folders` — dossiers
+
+Arborescence optionnelle (`parent_id`, cascade), `slug` stable pour les dossiers
+système, `icon`/`color` pour l'affichage, `is_system = 1` pour
+`Personnel` / `Dev Local` / `Agents & MCP` (non supprimables, non renommables),
+`require_biometric_for_mcp` comme garde-fou par dossier, `deleted_at` pour la
+suppression logique.
+
+Trois dossiers sont insérés par la migration, avec des UUID fixes :
+
+| Dossier        | `id`                                   | `slug`       |
+| -------------- | -------------------------------------- | ------------ |
+| Personnel      | `00000000-0000-4000-8000-000000000001` | `personal`   |
+| Dev Local      | `00000000-0000-4000-8000-000000000002` | `dev-local`  |
+| Agents & MCP   | `00000000-0000-4000-8000-000000000003` | `agents-mcp` |
+
+Ces identifiants sont des constantes publiques de `akooti-core`
+(`PERSONAL_FOLDER_ID`, `DEV_LOCAL_FOLDER_ID`, `AGENTS_MCP_FOLDER_ID`) : les
+jetons MCP, les règles de routage et les tests s'y réfèrent.
+
+### 2.3 `vault_items` — entrées
+
+- Identité : `id`, `item_type` (`login`, `api_key`, `note`, `env_set`), `title`,
+  `primary_url`, `username`.
+- Secrets (chiffrés) : `encrypted_password`/`password_nonce`,
+  `encrypted_totp_secret`/`totp_nonce`, `encrypted_notes`/`notes_nonce`.
+- Sélecteurs mémorisés : `username_selector`, `password_selector`,
+  `totp_selector`, `submit_selector` — réutilisés par l'injection aveugle.
+- Hygiène : `zxcvbn_score`, `password_sha1_prefix` (5 caractères, pour HIBP),
+  `is_compromised`, `password_updated_at`.
+- Traçabilité IA : `created_by_agent`, `expires_at` (TTL des comptes de test).
+- Divers : `favorite`, `created_at`, `updated_at`, `deleted_at`.
+- Index : `idx_items_primary_url` (filtré sur `deleted_at IS NULL`) et
+  `idx_items_updated_at`.
+
+### 2.4 Relations
+
+| Table                | Rôle                                                                                   | Invariant |
+| -------------------- | -------------------------------------------------------------------------------------- | --------- |
+| `item_folders`       | Appartenance **N:N** d'une entrée à ses dossiers                                       | Clé primaire `(item_id, folder_id)` ; cascade des deux côtés ; jamais de duplication d'entrée |
+| `item_uris`          | URI multiples avec `match_type` (`domain`, `host`, `starts_with`, `exact`, `regex`)     | — |
+| `item_custom_fields` | Champs personnalisés, chiffrés, avec `sort_order` et `is_secret`                        | AAD `…:custom:{id}` |
+| `password_history`   | Versions précédentes du mot de passe, chiffrées                                        | Écrit uniquement en cas de changement réel |
+
+### 2.5 `passkeys` — table créée, usage prévu en phase 6
+
+`credential_id` unique, `rp_id`/`rp_name`, `user_handle`, clé privée chiffrée
+(`encrypted_private_key` + nonce), `sign_count`, `last_used_at`. La table existe
+pour que la migration reste unique ; aucune écriture n'a lieu tant que
+l'interception WebAuthn n'est pas livrée.
+
+### 2.6 `local_routing_rules` — routage `Dev Local`
+
+`pattern` unique, `pattern_type` (`suffix`, `exact_host`, `cidr`, `regex`),
+`target_folder_id`, `is_default`, `enabled`. Cinq règles par défaut visent
+`Dev Local` : `.local`, `.test`, `.localhost` (suffixes), `localhost` et
+`127.0.0.1` (hôtes exacts).
+
+### 2.7 `mcp_tokens`, `mcp_token_folders`, `mcp_audit_logs` — sécurité IA
+
+- `mcp_tokens` : `token_hash` (SHA-256 du secret, **jamais** le secret),
+  `token_prefix` (8 caractères pour l'affichage), `scopes_json`, dossier de
+  création par défaut, `expires_at`, `revoked_at`, `last_used_at`.
+- `mcp_token_folders` : cloisonnement strict, un jeton ne voit que ces dossiers.
+- `mcp_audit_logs` : `action` (`vault_search`, `cdp_autofill`,
+  `create_and_fill`, `exec_env`, `access_denied`), `status` (`success`,
+  `denied`, `error`), `target_item_id`, `target_origin`, `details` — jamais de
+  valeur secrète. Index `idx_audit_created_at`.
+
+Ces trois tables **ne quittent jamais la machine** : elles ne sont pas
+synchronisées (règle AI-5).
+
+### 2.8 `backup_targets` — table créée, usage prévu
+
+`provider` (`local`, `s3`, `gdrive`), configuration chiffrée
+(`encrypted_config` + nonce), `interval_minutes`, `retention_count`,
+`last_run_at`, `last_status`. Aucune écriture tant que le planificateur de
+sauvegarde n'est pas livré.
+
+### 2.9 PRAGMA
 
 ```sql
--- ============================================================================
--- AKOOTI - SCHÉMA SUPABASE ZERO-KNOWLEDGE & REALTIME SYNC
--- ============================================================================
+PRAGMA foreign_keys = ON;   -- intégrité référentielle
+PRAGMA journal_mode = WAL;  -- lectures concurrentes, récupération après crash
+```
 
--- Extension pour UUID
+Le mode WAL explique la présence de `vault.db-wal` et `vault.db-shm` à côté de
+`vault.db` : ce sont des fichiers d'exploitation normaux, à sauvegarder avec la
+base (ou à faire disparaître par un checkpoint avant copie).
+
+---
+
+## 3. Schéma Supabase (conception, non implémenté)
+
+Objectif : un administrateur de la base PostgreSQL ne doit pouvoir lire **ni un
+titre, ni une URL, ni un nom de dossier, ni même compter** les dossiers ou
+passkeys d'un utilisateur. Le client Rust sérialise chaque objet, le chiffre en
+XChaCha20-Poly1305 avec la clé dérivée localement, et ne pousse que
+`ciphertext` + `nonce`.
+
+```sql
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ----------------------------------------------------------------------------
--- 1. ENVELOPPE CRYPTOGRAPHIQUE DU COFFRE (1 par utilisateur)
--- ----------------------------------------------------------------------------
+-- Enveloppe cryptographique du coffre (une par utilisateur)
 CREATE TABLE public.akooti_vault_envelopes (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     vault_id UUID NOT NULL,
     kdf_algorithm TEXT NOT NULL DEFAULT 'argon2id',
-    kdf_salt TEXT NOT NULL,                      -- Base64
+    kdf_salt TEXT NOT NULL,              -- Base64
     kdf_memory_kib INTEGER NOT NULL DEFAULT 65536,
     kdf_iterations INTEGER NOT NULL DEFAULT 3,
     kdf_parallelism INTEGER NOT NULL DEFAULT 4,
-    wrapped_master_key TEXT NOT NULL,            -- Base64 (chiffrée par le mot de passe maître)
-    wrapped_key_nonce TEXT NOT NULL,             -- Base64
+    wrapped_master_key TEXT NOT NULL,    -- Base64
+    wrapped_key_nonce TEXT NOT NULL,     -- Base64
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ----------------------------------------------------------------------------
--- 2. ENREGISTREMENTS CHIFFRÉS DE BOUT EN BOUT (Entrées, Dossiers, Passkeys, Règles)
--- ----------------------------------------------------------------------------
--- Un modèle polymorphe chiffré évite même de révéler combien de dossiers ou de
--- passkeys possède l'utilisateur : tout est un enregistrement chiffré typé.
+-- Enregistrements chiffrés de bout en bout (entrées, dossiers, passkeys, règles)
 CREATE TABLE public.akooti_sync_records (
-    id UUID NOT NULL,                            -- Même UUID que dans SQLCipher local
+    id UUID NOT NULL,                    -- même UUID que dans SQLCipher
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    record_type TEXT NOT NULL,                   -- 'folder' | 'item' | 'passkey' | 'routing_rule'
-    
-    -- Charge utile 100 % chiffrée côté client (JSON sérialisé -> XChaCha20-Poly1305 -> Base64)
-    -- Contient : titre, URLs, mot de passe, TOTP, sélecteurs CSS, liste des folder_ids, etc.
-    ciphertext TEXT NOT NULL,
-    nonce TEXT NOT NULL,                         -- Nonce 24 octets en Base64
-    
-    -- Horodatage logique pour résolution de conflits sans horloge biaisée
+    record_type TEXT NOT NULL,           -- 'folder' | 'item' | 'passkey' | 'routing_rule'
+    ciphertext TEXT NOT NULL,            -- JSON sérialisé -> XChaCha20 -> Base64
+    nonce TEXT NOT NULL,
     version BIGINT NOT NULL DEFAULT 1,
     client_updated_at TIMESTAMPTZ NOT NULL,
     server_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,   -- Tombstone pour propager les suppressions
-    
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (user_id, id)
 );
 
--- Index pour récupérer uniquement les deltas depuis la dernière synchro
-CREATE INDEX idx_sync_records_delta 
+CREATE INDEX idx_sync_records_delta
     ON public.akooti_sync_records(user_id, server_updated_at);
 
--- Trigger automatique pour mettre à jour server_updated_at à chaque upsert
 CREATE OR REPLACE FUNCTION public.update_server_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -321,39 +220,46 @@ CREATE TRIGGER trg_akooti_sync_timestamp
     BEFORE INSERT OR UPDATE ON public.akooti_sync_records
     FOR EACH ROW EXECUTE FUNCTION public.update_server_timestamp();
 
--- ----------------------------------------------------------------------------
--- 3. SÉCURITÉ ROW LEVEL SECURITY (RLS) STRICTE
--- ----------------------------------------------------------------------------
 ALTER TABLE public.akooti_vault_envelopes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.akooti_sync_records ENABLE ROW LEVEL SECURITY;
 
--- L'utilisateur ne peut lire/écrire que ses propres enveloppes et enregistrements
 CREATE POLICY "Users manage own vault envelope"
-    ON public.akooti_vault_envelopes
-    FOR ALL
-    USING (auth.uid() = user_id)
-    WITH CHECK (auth.uid() = user_id);
+    ON public.akooti_vault_envelopes FOR ALL
+    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users manage own sync records"
-    ON public.akooti_sync_records
-    FOR ALL
-    USING (auth.uid() = user_id)
-    WITH CHECK (auth.uid() = user_id);
+    ON public.akooti_sync_records FOR ALL
+    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- ----------------------------------------------------------------------------
--- 4. ACTIVATION DE SUPABASE REALTIME
--- ----------------------------------------------------------------------------
--- Permet à l'application Desktop Akooti d'écouter en WebSocket les modifications
--- poussées par un autre appareil en temps réel.
 ALTER PUBLICATION supabase_realtime ADD TABLE public.akooti_sync_records;
-
 ```
+
+### Pourquoi ces choix
+
+- **Modèle polymorphe** (`record_type` + `ciphertext`) : le serveur ne peut pas
+  déduire la structure du coffre, ni le nombre de dossiers ou de passkeys.
+- **`folder_ids` dans le chiffré** : l'appartenance multi-dossiers est sérialisée
+  avec l'entrée, donc une écriture met à jour l'entrée et ses dossiers
+  atomiquement, et le serveur ne peut pas regrouper des identifiants.
+- **`is_deleted` (tombstone)** : une suppression doit se propager sans révéler
+  ce qui a été supprimé.
+- **RLS sur `auth.uid()`** : même avec la clé anon, un utilisateur ne lit que ses
+  lignes ; l'API ne sert que de transport de blobs.
+- **Ce qui n'est jamais synchronisé** : `mcp_tokens`, `mcp_token_folders`,
+  `mcp_audit_logs`, `backup_targets`. Un jeton lié à une machine de
+  développement ne doit pas se répliquer ailleurs.
 
 ---
 
-### Points clés de cette conception hybride
+## 4. Invariants à respecter lors d'une évolution
 
-* **Pourquoi stocker les `folder_ids` à l'intérieur du `ciphertext` sur Supabase ?**
-Dans `akooti_sync_records`, la relation `item_folders` est sérialisée directement dans le payload chiffré de l'entrée (`"folder_ids": ["0000...002", "uuid-travail"]`). Ainsi, non seulement la synchronisation atomique d'une entrée met à jour ses dossiers en une seule opération sans risque de désynchronisation entre deux tables réseau, mais **Supabase ne peut même pas deviner quels identifiants sont regroupés ensemble**.
-* **Ce qui reste strictement local (jamais synchronisé sur Supabase) :**
-Les tables `mcp_tokens`, `mcp_token_folders`, `mcp_audit_logs` et `backup_targets` restent uniquement dans **SQLCipher local**. Un jeton IA généré pour ton PC de développement local ne doit jamais être répliqué automatiquement sur un autre ordinateur.
+1. Toute nouvelle colonne secrète suit le couple `encrypted_*` + `*_nonce` et un
+   AAD qui contient l'identifiant de l'entrée et le nom du champ.
+2. Une nouvelle table qui porte des données utilisateur reçoit `deleted_at` si sa
+   suppression doit être propagée plus tard.
+3. Une migration livrée n'est jamais modifiée : on en ajoute une nouvelle, et
+   `db.rs` vérifie qu'elle reste idempotente.
+4. Une table contenant des jetons, des journaux d'audit ou des configurations de
+   sauvegarde est déclarée « locale uniquement » et n'apparaît pas dans le schéma
+   Supabase.
+5. Le schéma local et ce document évoluent dans la même PR (règle ARCH-5).
