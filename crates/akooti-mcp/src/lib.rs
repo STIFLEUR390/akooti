@@ -169,6 +169,13 @@ impl AkootiServer {
                 "outcome": outcome,
             }))),
             ResponseBody::Exec(outcome) => Ok(json_result(&json!(outcome))),
+            // The extension payload is the only body that carries a value. No
+            // MCP tool maps to it, so this arm is a last-line guard: it drops
+            // the payload and answers a refusal (SEC-1, ARCH-6).
+            ResponseBody::ExtensionFill(_) => Ok(tool_error(
+                "forbidden",
+                "this payload belongs to the browser extension",
+            )),
             ResponseBody::Error { code, message } => Ok(tool_error(&code, &message)),
         }
     }
@@ -374,6 +381,40 @@ mod tests {
     }
 
     #[test]
+    fn a_value_released_to_the_extension_never_reaches_a_tool_result() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("daemon.sock");
+        let listener = UnixListener::bind(&path).expect("bind");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            akooti_ipc::read_frame(&mut stream).expect("request");
+            let reply = Response::ok(ResponseBody::ExtensionFill(akooti_ipc::FillPayload {
+                origin: "https://app.example.test".to_owned(),
+                selectors: akooti_ipc::SelectorOverride::default(),
+                username: Some("agent@example.test".to_owned().into()),
+                password: Some("s3cret-value".to_owned().into()),
+                totp: Some("123456".to_owned().into()),
+            }));
+            let encoded = serde_json::to_vec(&reply).expect("encode");
+            akooti_ipc::write_frame(&mut stream, &encoded).expect("reply");
+            stream.flush().expect("flush");
+        });
+
+        let server = AkootiServer::at(&path, "ak_mcp_test".to_owned());
+        let result = server
+            .exchange(akooti_ipc::Request::VaultStatus {
+                token: "ak_mcp_test".to_owned(),
+            })
+            .expect("result");
+        let rendered = serde_json::to_string(&result).expect("render");
+        assert!(rendered.contains("forbidden"));
+        assert!(!rendered.contains("s3cret-value"));
+        assert!(!rendered.contains("123456"));
+        assert!(!rendered.contains("agent@example.test"));
+        handle.join().expect("join");
+    }
+
+    #[test]
     fn selector_overrides_only_carry_selectors() {
         let selectors = Selectors {
             password: Some("#pass".to_owned()),
@@ -419,6 +460,9 @@ mod tests {
             expires_at: None,
         });
         assert!(matches!(body, ResponseBody::VaultStatus(_)));
-        assert_eq!(Response::ok(body).protocol_version, 1);
+        assert_eq!(
+            Response::ok(body).protocol_version,
+            akooti_ipc::PROTOCOL_VERSION
+        );
     }
 }
