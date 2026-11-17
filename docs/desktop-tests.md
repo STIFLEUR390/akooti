@@ -154,10 +154,13 @@ trouver, les tests servent à ne pas régresser.
 
 ## 6. Phase 6 — extension navigateur et pont Native Messaging
 
-> **État : plan écrit, pas encore déroulé.** Aucun navigateur n'a été piloté
-> pendant l'implémentation : les lignes de §6.3 sont des **attendus**, pas des
-> observations. La part automatisée correspondante est en
-> [testing.md](./testing.md) §4.4, §4.5 et §7.
+> **État : partiellement déroulée le 2026-11-17.** Ce qui ne demande pas de
+> navigateur a été joué pour de vrai — enregistrement des manifestes,
+> pompe à trames dans le binaire réel, rendu et accessibilité du popup — et les
+> résultats observés sont ci-dessous. Ce qui exige un navigateur **avec
+> l'extension chargée** (appairage réel, remplissage d'un onglet, passkeys,
+> enregistrement de l'hôte vu par le navigateur) n'a pas été joué : ces lignes
+> restent des attendus, marquées comme telles.
 
 La phase 6 livre deux moitiés qui ne se connaissent pas : l'extension WXT (un
 source, Chrome/Edge/Brave en MV3 et Firefox en MV2) et `akooti native-host`, une
@@ -167,7 +170,7 @@ la recette doit mettre à l'épreuve : un hôte qui ne comprend pas les trames n
 peut pas laisser fuiter un secret, une extension qui ne garde rien ne peut pas
 devenir un second coffre.
 
-### 6.1 Préparer les deux moitiés
+### 6.1 Enregistrer l'hôte (observé)
 
 ```bash
 bun run --filter @akooti/extension build           # .output/chrome-mv3  (MV3)
@@ -175,80 +178,103 @@ bun run --filter @akooti/extension build:firefox   # .output/firefox-mv2 (MV2)
 cargo build -p akooti                              # ./target/debug/akooti
 ```
 
-1. **Charger l'extension.** Chrome : `chrome://extensions` → mode développeur →
-   « Charger l'extension non empaquetée » → `.output/chrome-mv3`. Noter
-   l'identifiant affiché (32 lettres `a`–`p`) : c'est **lui seul** que le
-   manifeste doit autoriser. Firefox : `about:debugging#/runtime/this-firefox` →
-   « Charger un module temporaire » → `.output/firefox-mv2/manifest.json` ;
-   l'identifiant est épinglé (`extension@akooti.local`, à la fois dans
-   `apps/extension/wxt.config.ts` et dans
-   `native_register::FIREFOX_EXTENSION_ID`).
-2. **Enregistrer l'hôte.** Une commande par navigateur, sans privilège :
+Tout ce qui suit a été rejoué dans un profil jetable
+(`--home /tmp/akooti-recette`), donc sans toucher aux manifestes réels :
 
-   ```bash
-   ./target/debug/akooti native-register --browser chrome --extension-id <id>
-   # chrome: installed (/home/…/.config/google-chrome/NativeMessagingHosts/org.akooti.host.json)
-   ./target/debug/akooti native-register --browser chrome --extension-id <id> --check
-   # chrome: current (…)
-   ./target/debug/akooti native-register --browser firefox
-   # firefox: installed (/home/…/.mozilla/native-messaging-hosts/org.akooti.host.json)
-   ./target/debug/akooti native-register --browser chrome --uninstall
-   ```
+| Commande | Sortie observée | Code |
+| -------- | --------------- | ---- |
+| `native-register --browser chrome` | `akooti native-register: chrome: chrome needs an extension id: pass --extension-id with the id shown by the browser` | 1 |
+| `--extension-id abc` | `akooti native-register: chrome: the extension id given for chrome is not valid` | 1 |
+| `--extension-id <32 lettres a-p>` | `chrome: installed (/tmp/akooti-recette/.config/google-chrome/NativeMessagingHosts/org.akooti.host.json)` | 0 |
+| `--check` juste après | `chrome: current (…)` | 0 |
+| manifeste élargi à la main puis `--check` | `chrome: outdated (…)` | 1 |
+| `native-register` (réparation) | `chrome: repaired (…)` puis `--check` → `current` | 0 |
+| `native-register` une seconde fois | `chrome: unchanged (…)` | 0 |
+| `--browser firefox` | `firefox: installed (/tmp/akooti-recette/.mozilla/native-messaging-hosts/org.akooti.host.json)` | 0 |
+| `--uninstall` (×2) | `chrome: removed (…)` puis `chrome: absent (…)` | 0 |
+| `--check` après désinstallation | `chrome: missing (…)` | 1 |
 
-   `--check` est une **barrière** (CI, script d'installation) : `missing`,
-   `outdated` et `unreadable` sortent en 1. `--home` et `--host` permettent de
-   rejouer toute la séquence dans un profil jetable
-   (`--home /tmp/akooti-recette`), sans toucher aux manifestes réels.
-3. **Appairer l'extension.** Dans Akooti, page **Accès IA** : créer un jeton
-   portant les portées `read_metadata` et `blind_fill`, restreint aux dossiers
-   que l'extension peut lire. Le secret ne s'affiche **qu'une fois** : le coller
-   dans le popup (§6.2). C'est l'unique identifiant de l'extension, il ne quitte
-   jamais le navigateur et le daemon le révoque comme les autres.
+Le manifeste écrit ne contient que ce qu'il faut :
 
-### 6.2 Parcours du popup
+```json
+{
+  "name": "org.akooti.host",
+  "description": "Akooti browser bridge: relay between the extension and the local daemon",
+  "path": "/home/…/target/debug/akooti",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://abcdefghijklmnopabcdefghijklmnop/"]
+}
+```
 
-| # | Geste | Attendu |
-| - | ----- | ------- |
-| 1 | Ouvrir le popup sans appairage | pastille « Non appairée », champ `ak_mcp_…`, bouton « Appairer » **désactivé** tant que le jeton n'a pas la forme `ak_mcp_` + 64 hexadécimaux |
-| 2 | Coller un jeton tronqué | message « Un jeton Akooti commence par `ak_mcp_` suivi de 64 caractères hexadécimaux », rien n'est écrit |
-| 3 | Coller un jeton valide, appairer | pastille « Coffre déverrouillé », pied de page `Jeton ak_mcp_xxxx…yyyy` : le secret entier n'est jamais réaffiché |
-| 4 | Fermer l'application, rouvrir le popup | pastille « Application fermée », aucune donnée en cache, l'extension ne bloque pas le navigateur |
-| 5 | Verrouiller le coffre | pastille « Coffre verrouillé », la recherche répond « Coffre verrouillé » (`locked`) |
-| 6 | Rechercher | résultats sans mot de passe, sans graine et sans champ secret ; une ligne d'audit `search` par envoi, jamais une par frappe |
-| 7 | « Remplir » sur la page de test (`127.0.0.1:8808`) | champs identifiant / mot de passe / code remplis, rapport `fieldsFilled`, **aucune valeur** affichée dans le popup |
-| 8 | « Remplir » depuis une page dont l'origine ne correspond pas à l'URL de l'entrée | titre « Action refusée » (`denied`), rien n'est injecté, audit en `error` |
-| 9 | « Copier · mot de passe » | presse-papiers rempli, toast, valeur jamais rendue dans le DOM |
-| 10 | « Capturer » sur un formulaire | sélecteurs CSS affichés dans le popup puis « Copier les sélecteurs » ; le pont **n'écrit pas** dans le coffre, la colle est manuelle |
-| 11 | Passkey sur un site de test (`https://webauthn.io`) | le shim est injecté (`script[data-akooti-nonce]`), le daemon répond `unavailable`, le navigateur reprend la main et la cérémonie aboutit (repli assumé, tâche 6.4) |
-| 12 | Consulter « Activité des agents » | une ligne `blind_autofill` par remplissage, avec origine et statut, sans valeur |
-| 13 | « Dissocier » | jeton retiré de `storage.local`, retour au formulaire d'appairage, le daemon refuse l'ancien jeton s'il est réutilisé |
+Firefox reçoit `allowed_extensions` avec l'id épinglé `extension@akooti.local`.
+Un manifeste élargi à la main est donc **signalé** (`outdated`) et réparé : c'est
+la propriété qui compte, `--check` étant utilisable comme barrière.
 
-### 6.3 Preuves de non-fuite propres à la phase
+Reste à faire dans un navigateur : charger `.output/chrome-mv3` en mode
+développeur (`chrome://extensions`) ou `.output/firefox-mv2/manifest.json`
+(`about:debugging`), puis vérifier que le navigateur voit bien l'hôte une fois
+la commande passée **sans** `--home` sur le vrai profil.
 
-Un remplissage réussi ne suffit pas : la phase 6 n'est valide que si l'on
-démontre **l'absence** du secret là où il pourrait fuiter.
+### 6.2 Pompe à trames (observé)
 
-| Où l'on regarde | Attendu |
-| --------------- | ------- |
-| Sortie standard de l'hôte natif | vide : la pompe ne journalise ni ne décode aucune trame |
-| `chrome://extensions` → « Erreurs » / console du service worker | aucune valeur, aucun jeton en clair |
-| `browser.storage.local` | la seule clé `akooti.pairing` (jeton d'appairage), aucune valeur du coffre |
-| Ligne d'audit `blind_autofill` | origine, identifiant d'entrée et statut seulement |
-| `akooti mcp` → `vault_blind_autofill` | erreur d'outil `forbidden` : le verbe qui libère des valeurs reste fermé aux agents |
-| `curl` sur un port local | aucune écoute ouverte par l'extension : la seule voie est le socket Unix du daemon |
+Trois scénarios joués sur `./target/debug/akooti native-host` avec un daemon
+factice sur un socket Unix de test :
 
-### 6.4 Défauts attendus de cette recette
+| Scénario | Observé |
+| -------- | ------- |
+| requête `handshake` → réponse du daemon | trame reçue **octet pour octet** identique des deux côtés, `stderr` vide, code 0 |
+| daemon absent | une trame `{"protocolVersion":2,"kind":"error","code":"daemon_unavailable","message":"the Akooti desktop app is not running"}`, `stderr` vide, code 1 |
+| trame navigateur > 1 Mio | **rien** n'atteint le daemon (le socket est fermé sans aucune trame), code 0 |
+| `stderr` dans tous les cas | vide : l'hôte ne journalise ni ne décode aucune trame |
 
-Cette section se remplit pendant le déroulement. Les points déjà connus, non
-corrigés, y figurent d'avance pour ne pas les redécouvrir :
+La non-fuite annoncée (SEC-2) tient donc dans le binaire réel, pas seulement en
+test unitaire.
 
-| Constat connu | Raison | Suivi |
-| ------------- | ------ | ----- |
-| La cérémonie WebAuthn retombe toujours sur le navigateur | aucun authentificateur côté daemon | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
-| Windows : ni manifeste (registre) ni socket | transport nommé non implémenté | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
-| Un credential reconstruit n'est pas une instance de `PublicKeyCredential` | objet compatible seulement | `apps/extension/lib/webauthn/credential.ts` |
+### 6.3 Popup (observé hors extension)
 
-### 6.5 Preuves automatisées (2026-11-17)
+Le popup a été servi en HTTP et ouvert dans un navigateur, donc **sans** API
+d'extension : c'est le meilleur terrain disponible pour le rendu, les libellés et
+l'accessibilité, pas pour l'appairage.
+
+| Vérification | Observé |
+| ------------ | ------- |
+| Rendu initial | en-tête « Akooti », pastille « Non appairée », formulaire « Appairer l'extension », pied « Aucun jeton » |
+| Jeton mal formé (`ak_mcp_pas_un_jeton`) | message « Un jeton Akooti commence par `ak_mcp_` suivi de 64 caractères hexadécimaux », bouton **désactivé** |
+| Jeton bien formé (`ak_mcp_` + 64 hex) | bouton actif, retour du texte de réassurance |
+| Validation du formulaire sans API d'extension | alerte « Extension rechargée » + « the extension was reloaded; reopen this page » (voir §6.5, défaut 1) |
+| `axe-core` / Lighthouse | accessibilité **1.0**, bonnes pratiques 1.0 ; seul reste `meta-description` (SEO, sans objet pour un popup) |
+| Landmark principal | `<main>` présent (voir §6.5, défaut 2) |
+
+Reste à faire avec l'extension chargée : appairage par un vrai jeton **Accès IA**,
+états « Coffre verrouillé » / « Coffre déverrouillé », recherche, remplissage
+d'un onglet, copie, capture, dissociation, et l'audit correspondant.
+
+### 6.4 Shim WebAuthn (observé)
+
+`webauthn-main.js` injecté dans une page de test avec un `data-akooti-nonce` :
+
+- le shim s'installe (`window.__akootiPasskeyShim === true`) et remplace bien
+  `navigator.credentials.create` ;
+- faute de script de contenu pour répondre, il attend puis **rend la main à
+  Chromium**, qui journalise son propre avertissement WebAuthn : la cérémonie
+  repart vers le navigateur, comme annoncé (`handled: false`) ;
+- conséquence à connaître : sur une page où le pont ne répond pas, le repli
+  arrive au bout du délai de la cérémonie. Ce cas ne se produit pas en pratique —
+  le nonce est posé par le script de contenu, qui répond toujours, même par une
+  erreur — mais il explique pourquoi le shim ne doit jamais être injecté sans
+  lui.
+
+Reste à faire avec un vrai authentificateur : la cérémonie servie par le coffre
+(tâche 6.4).
+
+### 6.5 Défauts trouvés par cette recette (et corrigés)
+
+| Constat | Cause | Correctif |
+| ------- | ----- | --------- |
+| Une extension rechargée s'annonçait « Application fermée » avec, en détail, `Cannot read properties of undefined (reading 'sendMessage')` | toute erreur de transport était traduite en `daemon_unavailable` | nouveau code `context_lost` (« Extension rechargée ») : le bus manquant n'est pas l'application fermée. `isContextLost` reconnaît les messages du navigateur, avec un repli sur `daemon_unavailable` (`lib/runtime.ts`, testé) |
+| Le popup n'avait aucun repère principal | pas de `<main>` | contenu enveloppé dans `<main>`, rythme conservé par `.body` ; accessibilité `axe` à 1.0 |
+
+### 6.6 Preuves automatisées (2026-11-17)
 
 | # | Ce qui est prouvé | Preuve |
 | - | ----------------- | ------ |
@@ -256,7 +282,7 @@ corrigés, y figurent d'avance pour ne pas les redécouvrir :
 | 2 | Manifestes : chemin par navigateur et par OS, `allowed_origins` vs `allowed_extensions`, id validé avant toute écriture, installation idempotente, réparation, désinstallation | `cargo test -p akooti native_register` (10 tests) |
 | 3 | Trame `vaultExtensionFill` : forme dorée `camelCase`, version 2, `FillPayload` jamais affiché | `cargo test -p akooti-ipc` |
 | 4 | Une connexion qui ne s'est pas annoncée `native-host` ne peut pas déclencher de remplissage (`access_denied`) ; le serveur MCP traduit `extensionFill` en erreur `forbidden` | `cargo test -p akooti`, `cargo test -p akooti-mcp` |
-| 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn | `cd apps/extension && bun test lib` (78 tests) |
+| 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn, distinction `context_lost` | `cd apps/extension && bun test lib` (80 tests) |
 
 ## 7. Grille à recopier pour une nouvelle phase
 

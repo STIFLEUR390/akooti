@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { RUNTIME_ERROR_CODES, type RuntimeReply, type RuntimeRequest } from "./messages";
-import { asRuntimeReply, callRuntime, isErrorCode } from "./runtime";
+import { asRuntimeReply, callRuntime, isContextLost, isErrorCode } from "./runtime";
 
 const STATUS: RuntimeReply = {
   ok: true,
@@ -33,14 +33,35 @@ describe("runtime client", () => {
     expect(seen[0]).toEqual({ type: "akooti:pair", token: "ak_mcp_test", label: "extension" });
   });
 
-  test("a worker that is gone becomes daemon_unavailable, not an exception", async () => {
+  test("a reloaded extension becomes context_lost, not a closed desktop app", async () => {
+    const cases = [
+      "Extension context invalidated.",
+      "Could not establish connection. Receiving end does not exist.",
+      "Cannot read properties of undefined (reading 'sendMessage')",
+    ];
+    for (const message of cases) {
+      const reply = await callRuntime(
+        async () => {
+          throw new Error(message);
+        },
+        { type: "akooti:status" },
+      );
+      expect(reply).toMatchObject({ ok: false, kind: "error", code: "context_lost" });
+    }
+  });
+
+  test("another transport failure stays daemon_unavailable with a readable detail", async () => {
     const reply = await callRuntime(
       async () => {
-        throw new Error("Could not establish connection. Receiving end does not exist.");
+        throw new Error("port closed before an answer");
       },
       { type: "akooti:status" },
     );
     expect(reply).toMatchObject({ ok: false, code: "daemon_unavailable" });
+    if (reply.ok) {
+      throw new Error("the reply should be a failure");
+    }
+    expect(reply.message).toBe("port closed before an answer");
   });
 
   test("a transport that throws a non-error still yields a reply", async () => {
@@ -55,6 +76,16 @@ describe("runtime client", () => {
       throw new Error("the reply should be a failure");
     }
     expect(reply.message.length).toBeGreaterThan(0);
+  });
+
+  test("only a lost context is told apart from a plain transport failure", () => {
+    expect(isContextLost(new Error("Extension context invalidated."))).toBe(true);
+    expect(
+      isContextLost(new Error("Cannot read properties of undefined (reading 'sendMessage')")),
+    ).toBe(true);
+    expect(isContextLost(new Error("the daemon answered nothing"))).toBe(false);
+    expect(isContextLost("boom")).toBe(false);
+    expect(isContextLost(undefined)).toBe(false);
   });
 });
 

@@ -36,6 +36,10 @@ export const RUNTIME_ERROR_CODES = [
   "no_tab",
   "unsupported_page",
   "no_form",
+  // The message bus itself is gone: the extension was reloaded or updated and
+  // this page is an orphan. Distinct from `daemon_unavailable`, which is about
+  // the desktop app, not about the extension.
+  "context_lost",
   "internal",
 ] as const;
 

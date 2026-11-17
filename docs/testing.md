@@ -12,7 +12,7 @@ recette manuelle dans le binaire réel est dans
 | Niveau | Ce qu'il prouve | Outils | Exécution |
 | ------ | --------------- | ------ | --------- |
 | **Unitaire / intégration Rust** | Le métier est correct et étanche : crypto, DAO, jetons, audit, importateurs, pont natif | `cargo test` (142 tests) | local + CI |
-| **Unitaire TypeScript** | Le formatage, les modèles partagés, le client IPC, le mode démo de l'UI et l'extension (pont, DOM, WebAuthn) | `bun test` (128 tests) | local + CI |
+| **Unitaire TypeScript** | Le formatage, les modèles partagés, le client IPC, le mode démo de l'UI et l'extension (pont, DOM, WebAuthn) | `bun test` (130 tests) | local + CI |
 | **Recette manuelle pilotée** | L'application réelle se comporte comme annoncé, accessibilité comprise | pont MCP Tauri, `axe-core` | à chaque fin de phase |
 
 Le cœur métier s'exécute **sans Tauri** : `cargo test -p akooti-core` suffit.
@@ -120,7 +120,7 @@ Deux conséquences pratiques :
 | Formatage | dates, tailles, libellés, cas limites | `apps/desktop/src/lib/format.test.ts` |
 | Force des mots de passe | bornes, classes, estimation d'entropie | `apps/desktop/src/lib/strength.test.ts` |
 | Contrat de l'extension | trames dorées face à Rust, `FillPayload`, codes d'erreur stables | `apps/extension/lib/protocol.test.ts` |
-| Bus interne | repli en `daemon_unavailable` quand le worker a disparu, refus d'une réponse malformée | `apps/extension/lib/runtime.test.ts` |
+| Bus interne | repli en `daemon_unavailable` quand le transport échoue, `context_lost` quand l'extension a été rechargée, refus d'une réponse malformée | `apps/extension/lib/runtime.test.ts` |
 | Pont natif (côté extension) | handshake avant la première requête, sérialisation, erreur collante sur version, expiration, reconnexion | `apps/extension/lib/native/bridge.test.ts` |
 | Appairage | forme du jeton, masquage, refus d'un jeton malformé avant écriture, dissociation | `apps/extension/lib/native/pairing.test.ts` |
 | Heuristiques DOM | classification des formulaires, rôles des champs, sélecteurs stables et échappés, danse d'événements de remplissage | `apps/extension/lib/dom/*.test.ts` |

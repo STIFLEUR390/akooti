@@ -27,6 +27,17 @@ export async function callRuntime(
   try {
     answer = await send(request);
   } catch (error) {
+    // A reloaded or updated extension leaves this page with no worker to talk
+    // to: the browser throws instead of answering. That is not the desktop app
+    // being closed, so it must not be reported as `daemon_unavailable`.
+    if (isContextLost(error)) {
+      return {
+        ok: false,
+        kind: "error",
+        code: "context_lost",
+        message: "the extension was reloaded; reopen this page",
+      };
+    }
     return {
       ok: false,
       kind: "error",
@@ -35,6 +46,21 @@ export async function callRuntime(
     };
   }
   return asRuntimeReply(answer);
+}
+
+/**
+ * Whether a transport failure means the extension context itself is gone.
+ *
+ * The wording belongs to the browser, not to us: Chrome says "Extension context
+ * invalidated", Firefox reports a missing receiving end, and a page that is not
+ * an extension at all has no `runtime` to call. Matching on those strings is
+ * best effort by nature, so the fallback stays a plain transport failure.
+ */
+export function isContextLost(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /context invalidated|receiving end does not exist|message port closed|reading 'sendMessage'/i.test(
+    message,
+  );
 }
 
 /**

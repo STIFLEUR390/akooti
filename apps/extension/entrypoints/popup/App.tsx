@@ -35,6 +35,7 @@ const FAILURE_TITLES: Record<RuntimeErrorCode, string> = {
   no_tab: "Aucun onglet actif",
   unsupported_page: "Page non prise en charge",
   no_form: "Aucun formulaire",
+  context_lost: "Extension rechargée",
   internal: "Erreur interne",
 };
 
@@ -200,149 +201,153 @@ export function App() {
         <span className={`pill pill--${pill.tone}`}>{pill.label}</span>
       </header>
 
-      <div className="alerts" aria-live="polite">
-        {failure && (
-          <p className="alert alert--danger">
-            <strong>{failure.title}</strong>
-            {failure.detail && <span className="alert__detail">{failure.detail}</span>}
-          </p>
-        )}
-        {notice && <p className="alert alert--success">{notice}</p>}
-      </div>
+      <main className="body">
+        <div className="alerts" aria-live="polite">
+          {failure && (
+            <p className="alert alert--danger">
+              <strong>{failure.title}</strong>
+              {failure.detail && <span className="alert__detail">{failure.detail}</span>}
+            </p>
+          )}
+          {notice && <p className="alert alert--success">{notice}</p>}
+        </div>
 
-      {phase === "loading" && <p className="muted">Chargement…</p>}
+        {phase === "loading" && <p className="muted">Chargement…</p>}
 
-      {phase === "unpaired" && (
-        <form
-          className="pair"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void pair();
-          }}
-        >
-          <h1 className="pair__title">Appairer l'extension</h1>
-          <p className="muted">
-            Dans Akooti, ouvrez <strong>Accès IA</strong>, créez un jeton avec les portées{" "}
-            <code>read_metadata</code> et <code>blind_fill</code>, puis collez-le ici.
-          </p>
-          <input
-            className="field"
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="ak_mcp_…"
-            aria-label="Jeton d'accès"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <p className="muted small">
-            {token.length > 0 && !isTokenShaped(token)
-              ? "Un jeton Akooti commence par ak_mcp_ suivi de 64 caractères hexadécimaux."
-              : "Le jeton reste dans ce navigateur et n'est envoyé qu'au daemon local."}
-          </p>
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={busy || !isTokenShaped(token)}
+        {phase === "unpaired" && (
+          <form
+            className="pair"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void pair();
+            }}
           >
-            Appairer
-          </button>
-        </form>
-      )}
-
-      {phase === "paired" && (
-        <>
-          <p className="muted small page">
-            {page
-              ? `${describeForm(page.kind)} sur ${page.origin}`
-              : "Aucun formulaire de connexion détecté sur cette page."}
-          </p>
-
-          <form className="search" onSubmit={(event) => void search(event)}>
+            <h1 className="pair__title">Appairer l'extension</h1>
+            <p className="muted">
+              Dans Akooti, ouvrez <strong>Accès IA</strong>, créez un jeton avec les portées{" "}
+              <code>read_metadata</code> et <code>blind_fill</code>, puis collez-le ici.
+            </p>
             <input
               className="field"
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Rechercher un identifiant…"
-              aria-label="Rechercher un identifiant"
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="ak_mcp_…"
+              aria-label="Jeton d'accès"
+              autoComplete="off"
+              spellCheck={false}
             />
-            <button className="button" type="submit" disabled={busy}>
-              Chercher
+            <p className="muted small">
+              {token.length > 0 && !isTokenShaped(token)
+                ? "Un jeton Akooti commence par ak_mcp_ suivi de 64 caractères hexadécimaux."
+                : "Le jeton reste dans ce navigateur et n'est envoyé qu'au daemon local."}
+            </p>
+            <button
+              className="button button--primary"
+              type="submit"
+              disabled={busy || !isTokenShaped(token)}
+            >
+              Appairer
             </button>
           </form>
+        )}
 
-          <ul className="items">
-            {items.map((item) => (
-              <li key={item.id} className="item">
-                <div className="item__head">
-                  <span className="item__title">{item.title}</span>
-                  {item.primaryUrl && <span className="item__host">{hostOf(item.primaryUrl)}</span>}
-                </div>
-                {item.username && <span className="item__username">{item.username}</span>}
-                <div className="item__actions">
-                  <button
-                    className="button button--primary"
-                    disabled={busy}
-                    onClick={() => void fill(item)}
-                  >
-                    Remplir
-                  </button>
-                  <span className="item__copy">
-                    Copier
+        {phase === "paired" && (
+          <>
+            <p className="muted small page">
+              {page
+                ? `${describeForm(page.kind)} sur ${page.origin}`
+                : "Aucun formulaire de connexion détecté sur cette page."}
+            </p>
+
+            <form className="search" onSubmit={(event) => void search(event)}>
+              <input
+                className="field"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Rechercher un identifiant…"
+                aria-label="Rechercher un identifiant"
+              />
+              <button className="button" type="submit" disabled={busy}>
+                Chercher
+              </button>
+            </form>
+
+            <ul className="items">
+              {items.map((item) => (
+                <li key={item.id} className="item">
+                  <div className="item__head">
+                    <span className="item__title">{item.title}</span>
+                    {item.primaryUrl && (
+                      <span className="item__host">{hostOf(item.primaryUrl)}</span>
+                    )}
+                  </div>
+                  {item.username && <span className="item__username">{item.username}</span>}
+                  <div className="item__actions">
                     <button
-                      className="chip"
+                      className="button button--primary"
                       disabled={busy}
-                      onClick={() => void copy(item, "username")}
+                      onClick={() => void fill(item)}
                     >
-                      nom
+                      Remplir
                     </button>
-                    <button
-                      className="chip"
-                      disabled={busy}
-                      onClick={() => void copy(item, "password")}
-                    >
-                      mot de passe
-                    </button>
-                    {item.hasTotp && (
+                    <span className="item__copy">
+                      Copier
                       <button
                         className="chip"
                         disabled={busy}
-                        onClick={() => void copy(item, "totp")}
+                        onClick={() => void copy(item, "username")}
                       >
-                        code
+                        nom
                       </button>
-                    )}
-                  </span>
-                </div>
-              </li>
-            ))}
-            {searched && items.length === 0 && (
-              <li className="muted small">Aucun identifiant ne correspond.</li>
-            )}
-          </ul>
+                      <button
+                        className="chip"
+                        disabled={busy}
+                        onClick={() => void copy(item, "password")}
+                      >
+                        mot de passe
+                      </button>
+                      {item.hasTotp && (
+                        <button
+                          className="chip"
+                          disabled={busy}
+                          onClick={() => void copy(item, "totp")}
+                        >
+                          code
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {searched && items.length === 0 && (
+                <li className="muted small">Aucun identifiant ne correspond.</li>
+              )}
+            </ul>
 
-          <section className="capture">
-            <div className="capture__head">
-              <span className="muted small">
-                Les sélecteurs se collent dans l'entrée du coffre : le pont navigateur ne l'écrit
-                jamais.
-              </span>
-              <button className="chip" disabled={busy} onClick={() => void captureSelectors()}>
-                Capturer
-              </button>
-            </div>
-            {capture !== null && (
-              <>
-                <pre className="capture__text">{capture}</pre>
-                <button className="button" onClick={() => void copyCapture()}>
-                  Copier les sélecteurs
+            <section className="capture">
+              <div className="capture__head">
+                <span className="muted small">
+                  Les sélecteurs se collent dans l'entrée du coffre : le pont navigateur ne l'écrit
+                  jamais.
+                </span>
+                <button className="chip" disabled={busy} onClick={() => void captureSelectors()}>
+                  Capturer
                 </button>
-              </>
-            )}
-          </section>
-        </>
-      )}
+              </div>
+              {capture !== null && (
+                <>
+                  <pre className="capture__text">{capture}</pre>
+                  <button className="button" onClick={() => void copyCapture()}>
+                    Copier les sélecteurs
+                  </button>
+                </>
+              )}
+            </section>
+          </>
+        )}
+      </main>
 
       <footer className="footer">
         <span className="muted small">
