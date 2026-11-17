@@ -9,6 +9,7 @@ pub mod folders;
 pub mod generator;
 pub mod import_export;
 pub mod items;
+pub mod mcp;
 pub mod routing;
 pub mod system;
 pub mod vault;

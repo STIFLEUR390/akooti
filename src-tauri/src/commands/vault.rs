@@ -6,6 +6,7 @@
 
 use akooti_core::{VaultError, VaultStatus};
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::State;
 
 use crate::dto::FolderDto;
@@ -26,7 +27,7 @@ pub struct VaultStatusDto {
 
 /// Returns the current lock state without touching any secret.
 #[tauri::command]
-pub fn vault_status(runtime: State<'_, VaultRuntime>) -> Result<VaultStatusDto, CommandError> {
+pub fn vault_status(runtime: State<'_, Arc<VaultRuntime>>) -> Result<VaultStatusDto, CommandError> {
     let status = runtime.status();
     let auto_lock_minutes = runtime
         .with_vault(|vault| Ok(vault.auto_lock_minutes()))
@@ -52,7 +53,7 @@ pub fn vault_status(runtime: State<'_, VaultRuntime>) -> Result<VaultStatusDto, 
 /// `vault_exists` when a vault file is already present.
 #[tauri::command]
 pub fn create_vault(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     password: String,
 ) -> Result<Vec<FolderDto>, CommandError> {
     if password.chars().count() < 12 {
@@ -81,7 +82,7 @@ pub fn create_vault(
 /// vault file exists yet.
 #[tauri::command]
 pub fn unlock_vault(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     password: String,
 ) -> Result<Vec<FolderDto>, CommandError> {
     if !runtime.is_initialized() {

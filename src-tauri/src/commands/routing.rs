@@ -1,5 +1,6 @@
 //! `Dev Local` routing rule commands.
 
+use std::sync::Arc;
 use tauri::State;
 
 use crate::dto::{NewRoutingRuleInput, RoutingRuleDto};
@@ -9,7 +10,7 @@ use crate::vault_runtime::VaultRuntime;
 /// Lists every routing rule, enabled or not.
 #[tauri::command]
 pub fn list_routing_rules(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
 ) -> Result<Vec<RoutingRuleDto>, CommandError> {
     runtime.touch();
     let rules = runtime.with_vault(|vault| vault.routing_rules())?;
@@ -19,7 +20,7 @@ pub fn list_routing_rules(
 /// Adds a custom routing rule.
 #[tauri::command]
 pub fn add_routing_rule(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     rule: NewRoutingRuleInput,
 ) -> Result<RoutingRuleDto, CommandError> {
     let rule = rule
@@ -33,7 +34,7 @@ pub fn add_routing_rule(
 /// Enables or disables one routing rule.
 #[tauri::command]
 pub fn set_routing_rule_enabled(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
     enabled: bool,
 ) -> Result<RoutingRuleDto, CommandError> {
@@ -45,7 +46,7 @@ pub fn set_routing_rule_enabled(
 /// Applies every enabled rule to every live item and returns the number of
 /// added folder memberships.
 #[tauri::command]
-pub fn apply_routing_rules(runtime: State<'_, VaultRuntime>) -> Result<usize, CommandError> {
+pub fn apply_routing_rules(runtime: State<'_, Arc<VaultRuntime>>) -> Result<usize, CommandError> {
     runtime.touch();
     let added = runtime.with_vault_mut(akooti_core::Vault::apply_routing_rules)?;
     Ok(added)

@@ -1,6 +1,7 @@
 //! Process-level commands: lock, theme-agnostic system information.
 
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::State;
 
 use crate::biometrics::{self, BiometricsStatus};
@@ -8,7 +9,7 @@ use crate::vault_runtime::VaultRuntime;
 
 /// Locks the vault immediately and drops the master key from RAM.
 #[tauri::command]
-pub fn lock_vault(runtime: State<'_, VaultRuntime>) {
+pub fn lock_vault(runtime: State<'_, Arc<VaultRuntime>>) {
     runtime.lock();
 }
 

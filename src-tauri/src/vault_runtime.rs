@@ -1,7 +1,7 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
-use akooti_core::{Vault, VaultError, VaultPaths, VaultSession, VaultStatus};
+use akooti_core::{NewAuditEntry, Vault, VaultError, VaultPaths, VaultSession, VaultStatus};
 
 use crate::error::CommandError;
 
@@ -83,6 +83,15 @@ impl VaultRuntime {
         let mut session = self.session();
         let vault = session.vault_mut().map_err(CommandError::from)?;
         operation(vault)
+    }
+
+    /// Appends one audit row to the unlocked vault.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VaultError::Locked`] when no session is open.
+    pub fn record_audit(&self, entry: NewAuditEntry) -> Result<(), VaultError> {
+        self.with_vault(|vault| vault.record_audit(entry))
     }
 
     /// Creates the initial vault.

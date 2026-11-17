@@ -1,5 +1,6 @@
 //! Folder commands.
 
+use std::sync::Arc;
 use tauri::State;
 
 use crate::dto::{FolderDraftDto, FolderDto};
@@ -9,7 +10,7 @@ use crate::vault_runtime::VaultRuntime;
 /// Lists folders, protected system folders first.
 #[tauri::command]
 pub fn list_folders(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     include_deleted: Option<bool>,
 ) -> Result<Vec<FolderDto>, CommandError> {
     runtime.touch();
@@ -21,7 +22,7 @@ pub fn list_folders(
 /// Creates a user folder.
 #[tauri::command]
 pub fn create_folder(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     draft: FolderDraftDto,
 ) -> Result<FolderDto, CommandError> {
     runtime.touch();
@@ -32,7 +33,7 @@ pub fn create_folder(
 /// Renames a user folder.
 #[tauri::command]
 pub fn rename_folder(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
     name: String,
 ) -> Result<FolderDto, CommandError> {
@@ -43,7 +44,10 @@ pub fn rename_folder(
 
 /// Soft-deletes a user folder. System folders are rejected by the core.
 #[tauri::command]
-pub fn delete_folder(runtime: State<'_, VaultRuntime>, id: String) -> Result<(), CommandError> {
+pub fn delete_folder(
+    runtime: State<'_, Arc<VaultRuntime>>,
+    id: String,
+) -> Result<(), CommandError> {
     runtime.touch();
     runtime.with_vault_mut(|vault| vault.delete_folder(&id))?;
     Ok(())
@@ -52,7 +56,7 @@ pub fn delete_folder(runtime: State<'_, VaultRuntime>, id: String) -> Result<(),
 /// Adds one existing item to one folder without duplicating the item.
 #[tauri::command]
 pub fn add_item_to_folder(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     item_id: String,
     folder_id: String,
 ) -> Result<(), CommandError> {
@@ -64,7 +68,7 @@ pub fn add_item_to_folder(
 /// Removes one item/folder link.
 #[tauri::command]
 pub fn remove_item_from_folder(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     item_id: String,
     folder_id: String,
 ) -> Result<(), CommandError> {

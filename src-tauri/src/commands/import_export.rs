@@ -11,6 +11,7 @@
 //! non-revealing issue kinds.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use akooti_core::{ImportFormat, SecretString};
 use serde::{Deserialize, Serialize};
@@ -179,7 +180,7 @@ pub fn pick_import_file(app: tauri::AppHandle) -> Result<Option<String>, Command
 /// it needs a password that was not supplied.
 #[tauri::command]
 pub fn preview_import_file(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     path: String,
     format: Option<String>,
     password: Option<String>,
@@ -203,7 +204,7 @@ pub fn preview_import_file(
 /// fails. The transaction rolls back every folder and item on failure.
 #[tauri::command]
 pub fn import_file(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     path: String,
     format: Option<String>,
     options: Option<ImportOptionsDto>,

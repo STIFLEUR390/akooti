@@ -4,6 +4,7 @@
 //! copied; it is never persisted and never logged.
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::State;
 
 use crate::error::CommandError;
@@ -79,7 +80,7 @@ pub struct GeneratedSecretDto {
 /// Returns `invalid_input` for an out-of-range length or no character class.
 #[tauri::command]
 pub fn generate_password(
-    _runtime: State<'_, VaultRuntime>,
+    _runtime: State<'_, Arc<VaultRuntime>>,
     options: Option<PasswordOptionsInput>,
 ) -> Result<GeneratedSecretDto, CommandError> {
     let options = options.unwrap_or_default();
@@ -104,7 +105,7 @@ pub fn generate_password(
 /// Returns `invalid_input` for an out-of-range word count.
 #[tauri::command]
 pub fn generate_passphrase(
-    _runtime: State<'_, VaultRuntime>,
+    _runtime: State<'_, Arc<VaultRuntime>>,
     options: Option<PassphraseOptionsInput>,
 ) -> Result<GeneratedSecretDto, CommandError> {
     let options = options.unwrap_or_default();
