@@ -59,6 +59,14 @@ exports/
 *.p12
 *.key
 
+# Local test vault + MCP wiring (real test secrets, never committed):
+# TEST-VAULT.local.txt holds the throwaway vault password and MCP tokens,
+# opencode.json points a project-local MCP server at the debug binary.
+# See TEST-VAULT.local.txt §5 for the cleanup procedure.
+opencode.json
+opencode.jsonc
+*.local.txt
+
 # OS / editors
 .DS_Store
 Thumbs.db
