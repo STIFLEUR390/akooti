@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  MAX_ALLOWED_CREDENTIALS,
   WEBAUTHN_CHANNEL,
   WebauthnRelay,
   isRelyingPartyAllowed,
@@ -8,11 +9,28 @@ import {
   isWebauthnReply,
   isWebauthnRequest,
   pageMessageTarget,
+  unsupportedCeremony,
+  type CeremonyOptions,
   type WebauthnReply,
   type WebauthnRequest,
 } from "./bridge";
 
 const NONCE = "0123456789abcdef0123456789abcdef";
+
+/** Options of a plain assertion ceremony, as the shim would read them. */
+function ceremony(partial: Partial<CeremonyOptions> = {}): CeremonyOptions {
+  return {
+    rpId: "example.test",
+    rpName: null,
+    userHandle: null,
+    userName: null,
+    challenge: "AQIDBAUGBwgJCgsMDQ4PEA",
+    allowCredentials: ["YWJjZGVmZ2hpamts"],
+    userVerification: null,
+    residentKey: false,
+    ...partial,
+  };
+}
 
 function reply(partial: Partial<WebauthnReply> = {}): WebauthnReply {
   return {
@@ -83,15 +101,33 @@ describe("relying party guard", () => {
   });
 });
 
+describe("what this build cannot serve", () => {
+  test("a ceremony that demands user verification goes to the browser", () => {
+    expect(unsupportedCeremony(ceremony({ userVerification: "required" }))).toContain(
+      "cannot verify a user",
+    );
+    // `preferred` is a wish, not a requirement: the vault answers without UV
+    // and the relying party decides what that is worth.
+    expect(unsupportedCeremony(ceremony({ userVerification: "preferred" }))).toBeNull();
+    expect(unsupportedCeremony(ceremony({ userVerification: "discouraged" }))).toBeNull();
+  });
+
+  test("a discoverable credential goes to the browser", () => {
+    // There is no account chooser on the daemon side: an assertion without a
+    // listed credential cannot be answered, so promising one would be a lie.
+    expect(unsupportedCeremony(ceremony({ residentKey: true }))).toContain("discoverable");
+    expect(unsupportedCeremony(ceremony())).toBeNull();
+  });
+});
+
 describe("message shape", () => {
-  test("a request needs the channel, a nonce, an id and a known ceremony", () => {
+  test("a request needs the channel, a nonce, an id, a known ceremony and a challenge", () => {
     const valid: WebauthnRequest = {
       channel: WEBAUTHN_CHANNEL,
       nonce: NONCE,
       id: "create-1",
       kind: "create",
-      rpId: null,
-      userVerification: null,
+      ...ceremony(),
     };
     expect(isWebauthnRequest(valid)).toBe(true);
     expect(isWebauthnRequest({ ...valid, nonce: "" })).toBe(false);
@@ -99,6 +135,28 @@ describe("message shape", () => {
     expect(isWebauthnRequest({ ...valid, channel: "other" })).toBe(false);
     expect(isWebauthnRequest(null)).toBe(false);
     expect(isWebauthnRequest("nope")).toBe(false);
+  });
+
+  test("a request with a field that is not base64url is refused", () => {
+    const valid: WebauthnRequest = {
+      channel: WEBAUTHN_CHANNEL,
+      nonce: NONCE,
+      id: "get-1",
+      kind: "get",
+      ...ceremony(),
+    };
+    expect(isWebauthnRequest({ ...valid, challenge: "" })).toBe(false);
+    expect(isWebauthnRequest({ ...valid, challenge: "not base64url!" })).toBe(false);
+    expect(isWebauthnRequest({ ...valid, allowCredentials: ["a b"] })).toBe(false);
+    expect(isWebauthnRequest({ ...valid, allowCredentials: "abc" })).toBe(false);
+    expect(isWebauthnRequest({ ...valid, userHandle: "%%%" })).toBe(false);
+    // A page cannot make the daemon chew through an unbounded list.
+    expect(
+      isWebauthnRequest({
+        ...valid,
+        allowCredentials: Array.from({ length: MAX_ALLOWED_CREDENTIALS + 1 }, () => "YWJj"),
+      }),
+    ).toBe(false);
   });
 
   test("a reply needs the channel, an id and a handled flag", () => {
@@ -114,8 +172,7 @@ describe("message shape", () => {
       nonce: NONCE,
       id: "get-1",
       kind: "get",
-      rpId: "example.test",
-      userVerification: null,
+      ...ceremony(),
     };
     expect(isReplyTo(request, reply())).toBe(true);
     expect(isReplyTo(request, reply({ id: "get-2" }))).toBe(false);
@@ -131,11 +188,11 @@ describe("message shape", () => {
 });
 
 describe("ceremony relay", () => {
-  test("posts a tagged request and resolves on the matching reply", async () => {
+  test("posts the ceremony untouched and resolves on the matching reply", async () => {
     const posted: unknown[] = [];
     const { clock: timers, cancelled } = clock();
     const relay = new WebauthnRelay((message) => posted.push(message), NONCE, timers);
-    const pending = relay.send("get", { rpId: "example.test" });
+    const pending = relay.send("get", ceremony());
     expect(posted).toHaveLength(1);
     expect(posted[0]).toEqual({
       channel: WEBAUTHN_CHANNEL,
@@ -143,10 +200,18 @@ describe("ceremony relay", () => {
       id: "get-1",
       kind: "get",
       rpId: "example.test",
+      rpName: null,
+      userHandle: null,
+      userName: null,
+      challenge: "AQIDBAUGBwgJCgsMDQ4PEA",
+      allowCredentials: ["YWJjZGVmZ2hpamts"],
       userVerification: null,
+      residentKey: false,
     });
     expect(relay.pending).toBe(1);
-    expect(relay.receive(reply({ handled: true, credential: { id: "abc" } }))).toBe(true);
+    expect(
+      relay.receive(reply({ handled: true, credential: { id: "abc", clientDataJSON: "e30" } })),
+    ).toBe(true);
     await expect(pending).resolves.toMatchObject({ handled: true });
     expect(relay.pending).toBe(0);
     // The timeout is dropped, so it cannot fire after the ceremony settled.
@@ -156,7 +221,7 @@ describe("ceremony relay", () => {
   test("ignores a reply with the wrong id, the wrong nonce or an unparsable body", () => {
     const { clock: timers } = clock();
     const relay = new WebauthnRelay(() => undefined, NONCE, timers);
-    void relay.send("get");
+    void relay.send("get", ceremony());
     expect(relay.receive({ id: "get-9" })).toBe(false);
     expect(relay.receive(reply({ nonce: "forged" }))).toBe(false);
     expect(relay.receive("nope")).toBe(false);
@@ -168,7 +233,7 @@ describe("ceremony relay", () => {
   test("a silent extension ends the ceremony with an error, so the caller can fall back", async () => {
     const { handlers, clock: timers } = clock();
     const relay = new WebauthnRelay(() => undefined, NONCE, timers, 1_000);
-    const pending = relay.send("create", { userVerification: "required" });
+    const pending = relay.send("create", ceremony({ userVerification: "required" }));
     const settled = rejectionMessage(pending);
     handlers[0]?.();
     expect(await settled).toContain("did not answer");
@@ -178,8 +243,8 @@ describe("ceremony relay", () => {
   test("cancelling rejects every ceremony still waiting", async () => {
     const { clock: timers } = clock();
     const relay = new WebauthnRelay(() => undefined, NONCE, timers);
-    const first = relay.send("create");
-    const second = relay.send("get");
+    const first = relay.send("create", ceremony());
+    const second = relay.send("get", ceremony());
     const settled = Promise.all([rejectionMessage(first), rejectionMessage(second)]);
     relay.cancel();
     expect(await settled).toEqual([
@@ -197,8 +262,8 @@ describe("ceremony relay", () => {
       NONCE,
       timers,
     );
-    void relay.send("get");
-    void relay.send("get");
+    void relay.send("get", ceremony());
+    void relay.send("get", ceremony());
     expect(posted.map((message) => message.id)).toEqual(["get-1", "get-2"]);
     expect(relay.pending).toBe(2);
   });

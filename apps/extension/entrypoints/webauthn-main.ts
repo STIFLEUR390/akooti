@@ -1,6 +1,12 @@
 import { defineUnlistedScript } from "wxt/utils/define-unlisted-script";
-import { WebauthnRelay, pageMessageTarget, type CeremonyKind } from "../lib/webauthn/bridge";
+import {
+  WebauthnRelay,
+  pageMessageTarget,
+  type CeremonyKind,
+  type CeremonyOptions,
+} from "../lib/webauthn/bridge";
 import { credentialFromJson } from "../lib/webauthn/credential";
+import { creationOptions, requestOptions } from "../lib/webauthn/options";
 
 /**
  * MAIN-world WebAuthn shim.
@@ -11,9 +17,10 @@ import { credentialFromJson } from "../lib/webauthn/credential";
  * function — a site that worked before installing Akooti keeps working, and a
  * user who never stores a passkey sees no difference.
  *
- * The daemon side of the ceremony is not part of this build (task 6.4): it
- * answers `handled: false`, so the fallback is the only path exercised today.
- * The reconstruction below is the contract that build will fill in.
+ * The ceremony itself is served by the vault (`crates/akooti-core/src/
+ * passkeys.rs`). This file only installs the interception, reads the options
+ * (`webauthn/options.ts`) and rebuilds the answer (`webauthn/credential.ts`): it
+ * holds no key, sees no secret, and decides nothing a relying party would trust.
  */
 
 declare global {
@@ -49,10 +56,10 @@ function install(): void {
   const originalGet = container.get?.bind(container);
 
   container.create = async (options?: CredentialCreationOptions) => {
-    const credential = await intercept(relay, "create", {
-      rpId: options?.publicKey?.rp?.id ?? null,
-      userVerification: options?.publicKey?.authenticatorSelection?.userVerification ?? null,
-    });
+    // `null` means "not a ceremony we can relay": the browser gets the call and
+    // raises its own error, which is the one the page knows how to read.
+    const ceremony = creationOptions(options);
+    const credential = ceremony === null ? null : await intercept(relay, "create", ceremony);
     if (credential !== null) {
       return credential;
     }
@@ -63,10 +70,8 @@ function install(): void {
   };
 
   container.get = async (options?: CredentialRequestOptions) => {
-    const credential = await intercept(relay, "get", {
-      rpId: options?.publicKey?.rpId ?? null,
-      userVerification: options?.publicKey?.userVerification ?? null,
-    });
+    const ceremony = requestOptions(options);
+    const credential = ceremony === null ? null : await intercept(relay, "get", ceremony);
     if (credential !== null) {
       return credential;
     }
@@ -86,7 +91,7 @@ function install(): void {
 async function intercept(
   relay: WebauthnRelay,
   kind: CeremonyKind,
-  options: { rpId: string | null; userVerification: string | null },
+  options: CeremonyOptions,
 ): Promise<Credential | null> {
   try {
     const reply = await relay.send(kind, options);

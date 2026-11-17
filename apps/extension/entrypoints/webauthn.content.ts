@@ -2,11 +2,13 @@ import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { injectScript } from "wxt/utils/inject-script";
 import { callRuntime, type RuntimeSend } from "../lib/runtime";
+import type { PasskeyRequest } from "../lib/messages";
 import {
   WEBAUTHN_CHANNEL,
   isRelyingPartyAllowed,
   isWebauthnRequest,
   pageMessageTarget,
+  unsupportedCeremony,
   type WebauthnReply,
   type WebauthnRequest,
 } from "../lib/webauthn/bridge";
@@ -19,6 +21,11 @@ import {
  * script injects it, picks the per-page nonce that authenticates its messages,
  * and forwards each ceremony to the service worker, which is the only process
  * allowed to talk to the daemon.
+ *
+ * Two things the page cannot fake happen here: the origin comes from
+ * `location.origin` and not from the message, and the relying party is checked
+ * against the page's own host before anything leaves the browser. The daemon
+ * checks both again (`crates/akooti-core/src/passkeys.rs`).
  *
  * Registration is limited to secure contexts: a `http:` page has no WebAuthn at
  * all, so there is nothing to intercept there.
@@ -60,16 +67,24 @@ async function relay(request: WebauthnRequest, nonce: string): Promise<void> {
     reason: null,
     credential: null,
   };
-  if (!isRelyingPartyAllowed(request.rpId, location.hostname)) {
-    reply.reason = "the requested relying party does not belong to this origin";
-    post(reply);
+  // A page that omits `rp.id` gets the browser's default, which is its own
+  // hostname: resolving it here is what makes the check below possible.
+  const rpId = (request.rpId ?? location.hostname).toLowerCase();
+  if (!isRelyingPartyAllowed(rpId, location.hostname)) {
+    post({ ...reply, reason: "the requested relying party does not belong to this origin" });
     return;
   }
-  const answer = await callRuntime(sendToWorker, {
-    type: "akooti:passkey",
-    kind: request.kind,
-    rpId: request.rpId,
-  });
+  const refusal = unsupportedCeremony({ ...request, rpId });
+  if (refusal !== null) {
+    post({ ...reply, reason: refusal });
+    return;
+  }
+  const ceremony: PasskeyRequest = {
+    ...request,
+    rpId,
+    origin: location.origin,
+  };
+  const answer = await callRuntime(sendToWorker, { type: "akooti:passkey", request: ceremony });
   if (answer.ok && answer.kind === "passkey") {
     reply.handled = answer.handled;
     reply.reason = answer.reason;

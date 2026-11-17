@@ -8,6 +8,8 @@
  * golden frames in `protocol.test.ts` pin the shape on both sides.
  */
 
+import type { PasskeyCredentialJson } from "./webauthn/credential";
+
 /** Must equal `akooti_ipc::PROTOCOL_VERSION`. */
 export const PROTOCOL_VERSION = 2;
 
@@ -52,7 +54,7 @@ export interface TokenStatus {
 /** What the user asked the extension to do with the released values. */
 export type FillTarget = "fill" | "clipboard";
 
-/** Requests the extension may send. An MCP agent never sends the last one. */
+/** Requests the extension may send. An MCP agent never sends the last three. */
 export type DaemonRequest =
   | { method: "handshake"; protocolVersion: number; client: string }
   | { method: "vaultStatus"; token: string }
@@ -64,6 +66,24 @@ export type DaemonRequest =
       origin: string;
       selectors: SelectorSet | null;
       target: FillTarget;
+    }
+  | {
+      method: "vaultPasskeyRegister";
+      token: string;
+      origin: string;
+      rpId: string;
+      rpName: string;
+      userHandle: string;
+      userName: string;
+      challenge: string;
+    }
+  | {
+      method: "vaultPasskeyAssert";
+      token: string;
+      origin: string;
+      rpId: string;
+      challenge: string;
+      allowCredentials: string[];
     };
 
 /**
@@ -96,6 +116,8 @@ export type DaemonResponse =
     } & TokenStatus)
   | { protocolVersion: number; kind: "search"; items: ItemSummary[] }
   | ({ protocolVersion: number; kind: "extensionFill" } & FillPayload)
+  | ({ protocolVersion: number; kind: "passkeyRegistration" } & PasskeyCredentialJson)
+  | ({ protocolVersion: number; kind: "passkeyAssertion" } & PasskeyCredentialJson)
   | { protocolVersion: number; kind: "error"; code: string; message: string };
 
 /** Stable error codes the daemon uses (see `docs/architecture.md` §5). */

@@ -7,6 +7,7 @@ import {
   type NativePortLike,
 } from "../lib/native/bridge";
 import { clearPairing, maskedToken, readPairing, writePairing } from "../lib/native/pairing";
+import { handOff, passkeyReply, passkeyRequest } from "../lib/webauthn/ceremony";
 import {
   isRuntimeRequest,
   type ContentReply,
@@ -15,6 +16,7 @@ import {
   type ExtensionStatus,
   type RuntimeErrorCode,
   type RuntimeReply,
+  type PasskeyRequest,
   type RuntimeRequest,
 } from "../lib/messages";
 import {
@@ -74,7 +76,7 @@ async function handle(request: RuntimeRequest): Promise<RuntimeReply> {
       case "akooti:capture":
         return await inspectActiveTab("capture");
       case "akooti:passkey":
-        return passkey(request.kind, request.rpId);
+        return await passkey(request.request);
       default:
         return failure("internal", "unknown request");
     }
@@ -222,21 +224,21 @@ async function inspectActiveTab(mode: "detect" | "capture"): Promise<RuntimeRepl
 }
 
 /**
- * Passkey ceremonies: the interception layer is in place, the vault side is not.
+ * Serves one WebAuthn ceremony from the vault, or hands it to the browser.
  *
- * The shim falls back to the browser authenticator whenever `handled` is false,
- * so a site keeps working and the user keeps its platform passkeys.
+ * The vault-side authenticator only runs on a connection that declared
+ * `client: "native-host"`, and this is that connection. Everything that can go
+ * wrong here — no pairing, an unreachable daemon, a locked vault, a refusal, a
+ * credential the vault does not hold — becomes `handled: false` with a reason,
+ * never an error: a site that could register or sign in before installing
+ * Akooti must still be able to.
  */
-function passkey(kind: "create" | "get", rpId: string | null): RuntimeReply {
-  void kind;
-  void rpId;
-  return {
-    ok: true,
-    kind: "passkey",
-    handled: false,
-    reason: "passkey storage is not part of this build; using the browser authenticator",
-    credential: null,
-  };
+async function passkey(request: PasskeyRequest): Promise<RuntimeReply> {
+  try {
+    return passkeyReply(await withToken((token) => passkeyRequest(token, request)));
+  } catch (error) {
+    return handOff(error instanceof BridgeError ? error.message : messageOf(error));
+  }
 }
 
 /** Releases the values for one origin, or reports why the daemon refused. */

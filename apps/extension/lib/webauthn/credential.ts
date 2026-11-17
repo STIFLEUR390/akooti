@@ -1,13 +1,16 @@
 /**
- * Reconstruction of a WebAuthn credential from the JSON the daemon would send.
+ * Reconstruction of a WebAuthn credential from the JSON the daemon sent.
  *
  * A relying party expects a real `PublicKeyCredential`; the browser only hands
- * that class to an authenticator, so a credential produced elsewhere has to be
- * rebuilt. The object below is a duck-typed stand-in: it carries every member a
- * page reads (`id`, `rawId`, `type`, `response`, `getClientExtensionResults`)
- * and the buffers are real `ArrayBuffer`s, but `instanceof PublicKeyCredential`
- * is false — a limitation that only the daemon-side authenticator can remove
- * (task 6.4, see `docs/architecture.md` §8).
+ * that class to an authenticator, so a credential produced by the vault has to
+ * be rebuilt here. The object below is a duck-typed stand-in: it carries every
+ * member a page reads (`id`, `rawId`, `type`, `response`,
+ * `getClientExtensionResults`) and the buffers are real `ArrayBuffer`s, but
+ * `instanceof PublicKeyCredential` is false. That is a property of the design —
+ * the signature is produced in the daemon, in another process — and no library
+ * can lift it. Every relying party library in use reads the members, which is
+ * why the bridge is worth shipping; a site that type-checks the constructor
+ * would see a credential it does not recognise.
  *
  * Nothing here talks to the network and nothing reads a secret: a credential is
  * public by design (it is meant to be handed to the page).
@@ -64,9 +67,9 @@ export function decodeBase64Url(value: string): ArrayBuffer | null {
   }
 }
 
-/** Encodes a buffer as base64url, used for the credential id. */
-export function encodeBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+/** Encodes bytes or a buffer as base64url, used for every binary field. */
+export function encodeBase64Url(value: ArrayBuffer | Uint8Array): string {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
   let binary = "";
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);

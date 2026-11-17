@@ -8,6 +8,8 @@
  */
 import type { FormDetection } from "./dom/detect";
 import type { FillPayload, ItemSummary } from "./protocol";
+import type { CeremonyKind, CeremonyOptions } from "./webauthn/bridge";
+import type { PasskeyCredentialJson } from "./webauthn/credential";
 
 /** Requests the popup or a content script may send. */
 export type RuntimeRequest =
@@ -19,7 +21,22 @@ export type RuntimeRequest =
   | { type: "akooti:copy"; itemId: string; field: CopyField }
   | { type: "akooti:detect" }
   | { type: "akooti:capture" }
-  | { type: "akooti:passkey"; kind: "create" | "get"; rpId: string | null };
+  | { type: "akooti:passkey"; request: PasskeyRequest };
+
+/**
+ * One WebAuthn ceremony relayed from a page.
+ *
+ * Parameters only, and all of them public: a challenge, a relying party, the
+ * account a site is registering. The private key stays in the vault, and the
+ * answer is a signature the site was going to receive anyway.
+ */
+export interface PasskeyRequest extends CeremonyOptions {
+  kind: CeremonyKind;
+  /** Serialized origin of the page, taken from `location.origin`. */
+  origin: string;
+  /** Relying party id, already checked against the origin. */
+  rpId: string;
+}
 
 /** Field the user asked to copy. */
 export type CopyField = "username" | "password" | "totp";
@@ -61,7 +78,7 @@ export type RuntimeReply =
       kind: "passkey";
       handled: boolean;
       reason: string | null;
-      credential: Record<string, unknown> | null;
+      credential: PasskeyCredentialJson | null;
     }
   | { ok: false; kind: "error"; code: RuntimeErrorCode; message: string };
 
