@@ -66,6 +66,59 @@ export interface PassphraseOptions {
   capitalize: boolean;
 }
 
+/** Capability a scoped MCP token may carry. */
+export type McpScope = "read_metadata" | "blind_fill" | "create_and_fill" | "exec_env";
+
+/** One MCP token as listed in the settings screen. Never carries the secret. */
+export interface McpToken {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: McpScope[];
+  folderIds: string[];
+  defaultCreateFolderId: string | null;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  lastUsedAt: number | null;
+  createdAt: number;
+  active: boolean;
+}
+
+/** The one and only time a token secret is returned. */
+export interface IssuedMcpToken {
+  token: McpToken;
+  secret: string;
+}
+
+/** Token creation payload. */
+export interface McpTokenDraft {
+  name: string;
+  scopes: McpScope[];
+  folderIds: string[];
+  defaultCreateFolderId?: string | null;
+  ttlDays?: number | null;
+}
+
+/** One row of the AI activity trail. Never carries a value. */
+export interface McpAuditEntry {
+  id: string;
+  tokenId: string | null;
+  action: string;
+  targetItemId: string | null;
+  targetFolderId: string | null;
+  targetOrigin: string | null;
+  status: "success" | "denied" | "error";
+  details: string | null;
+  createdAt: number;
+}
+
+/** State of the local daemon that headless entrypoints talk to. */
+export interface DaemonStatus {
+  running: boolean;
+  socketPath: string | null;
+  capabilities: string[];
+}
+
 /** A generated secret: shown once, never persisted. */
 export interface GeneratedSecret {
   value: string;
@@ -237,6 +290,13 @@ export interface AkootiApi {
   ): Promise<ImportReport>;
 
   copySecret(value: string): Promise<ClipboardReceipt>;
+
+  listMcpTokens(): Promise<McpToken[]>;
+  createMcpToken(draft: McpTokenDraft): Promise<IssuedMcpToken>;
+  revokeMcpToken(id: string): Promise<McpToken>;
+  deleteMcpToken(id: string): Promise<void>;
+  listMcpAuditLog(limit?: number): Promise<McpAuditEntry[]>;
+  daemonStatus(): Promise<DaemonStatus>;
 }
 
 /** Structured backend error: stable `code`, safe `message`. */
@@ -370,6 +430,13 @@ export const tauriApi: AkootiApi = {
     call("import_file", { path, format: format ?? null, options }),
 
   copySecret: (value) => call("copy_secret", { value }),
+
+  listMcpTokens: () => call("list_mcp_tokens"),
+  createMcpToken: (draft) => call("create_mcp_token", { draft }),
+  revokeMcpToken: (id) => call("revoke_mcp_token", { id }),
+  deleteMcpToken: (id) => call("delete_mcp_token", { id }),
+  listMcpAuditLog: (limit) => call("list_mcp_audit_log", { limit: limit ?? null }),
+  daemonStatus: () => call("daemon_status"),
 };
 
 /** Picks the real command surface or the mock. */

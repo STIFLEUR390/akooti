@@ -51,6 +51,25 @@ fn vault_totp_uses_encrypted_item_secret() {
 }
 
 #[test]
+fn an_eighty_bit_secret_still_produces_a_code() {
+    // Google Authenticator's default is 80 bits, below the 128 `totp-rs` insists
+    // on; the vault must not refuse the secrets services actually issue.
+    let short = SecretString::new("JBSWY3DPEHPK3PXP".to_owned());
+    let code = generate_totp_code(&short, TotpAlgorithm::Sha1, 59).expect("generate");
+    assert_eq!(code.expose().len(), 6);
+    assert!(code.expose().bytes().all(|byte| byte.is_ascii_digit()));
+}
+
+#[test]
+fn a_secret_that_is_not_base32_is_rejected() {
+    let broken = SecretString::new("not base32!".to_owned());
+    assert!(matches!(
+        generate_totp_code(&broken, TotpAlgorithm::Sha1, 59),
+        Err(VaultError::InvalidInput(_))
+    ));
+}
+
+#[test]
 fn password_history_only_archives_actual_changes() {
     let (_temp, paths) = fixture();
     let mut vault = Vault::create(&paths, "password").expect("create");

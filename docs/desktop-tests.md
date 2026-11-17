@@ -1,4 +1,4 @@
-# Tests de l'application desktop (phase 4)
+# Tests de l'application desktop (phases 4 et 5)
 
 Deux niveaux de vérification, tous deux rejouables :
 
@@ -69,9 +69,36 @@ Violations corrigées pendant la phase :
 - `page-has-heading-one` : le nom de marque de la sidebar est un `<h1>`.
 - `label` : le champ mot de passe du formulaire d'entrée porte un `aria-label`.
 
+## Phase 5 — jetons, daemon et serveur MCP
+
+### Vérifié automatiquement le 2026-11-17
+
+| # | Vérification | Preuve |
+| --- | --- | --- |
+| 1 | Cœur RBAC : 9 tests d'intégration (jeton retourné une fois, refus d'un jeton inconnu/révoqué/expiré, recherche cloisonnée, plan d'injection, compte éphémère + TTL, `exec_env`, audit sans secret) | `cargo test -p akooti-core --test mcp_access_test` |
+| 2 | Protocole IPC : cadrage, plafond 1 Mio, version, erreur distante, reconnexion | `cargo test -p akooti-ipc` |
+| 3 | Serveur MCP : refus = erreur d'outil avec code stable, résultats de recherche sans champ secret, taille de page bornée | `cargo test -p akooti-mcp` |
+| 4 | Daemon : masquage `stdout`/`stderr` de `vault_exec` (valeur brute, URL-encodée et JSON), échec explicite si le CDP ne répond pas, pont extension déclaré `unavailable` | `cargo test -p akooti` |
+| 5 | Chaîne complète `akooti mcp` → socket → daemon factice | `initialize`, `tools/list` (6 outils), `tools/call vault_search` et `vault_status` répondent en JSON-RPC, aucune valeur secrète dans les réponses |
+
+Parcours manuel de la nouvelle page **Accès IA** (à rejouer dans le binaire) :
+
+1. Créer un jeton `read_metadata` sur `Dev Local` : le secret s'affiche une seule
+   fois, avec le bouton « Copier » et l'avertissement d'unicité.
+2. Recharger la page : le secret n'apparaît plus, seuls le préfixe
+   (`ak_mcp_`) et les portées sont listés.
+3. Révoquer le jeton : il passe à l'état révoqué, le bouton devient
+   « Supprimer ».
+4. Configurer un client MCP avec `akooti mcp --token …` et appeler
+   `vault_search` : les résultats ne contiennent ni mot de passe ni graine.
+5. Vérifier que la ligne d'audit correspondante apparaît dans « Activité des
+   agents » avec l'origine.
+
 ## Ce qui n'est pas couvert ici
 
 - Le déverrouillage biométrique : aucun fournisseur n'est branché, l'UI masque
   le contrôle (voir `docs/adr/0005-biometrie-deverrouillage.md`).
-- Les outils MCP, les jetons et l'audit : phase 5.
-- L'extension et le pont Native Messaging : phase 6.
+- Le pont Native Messaging : `vault_blind_autofill` répond `unavailable` tant
+  que l'extension n'est pas branchée ; utiliser `vault_cdp_autofill`.
+- Le transport Windows (named pipe) : voir
+  `docs/adr/0006-transport-ipc-socket-unix.md`.

@@ -283,6 +283,15 @@ export function Sidebar({
           <Icon name="sliders" />
           <span className="nav-item__label">Routage Dev Local</span>
         </button>
+        <button
+          type="button"
+          className={screen === "mcp" ? "nav-item nav-item--active" : "nav-item"}
+          onClick={() => onScreen("mcp")}
+          aria-current={screen === "mcp" ? "page" : undefined}
+        >
+          <Icon name="bot" />
+          <span className="nav-item__label">Accès IA</span>
+        </button>
       </div>
 
       <footer className="sidebar__footer">

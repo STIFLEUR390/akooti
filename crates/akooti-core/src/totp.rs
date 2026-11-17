@@ -28,8 +28,8 @@ impl TotpAlgorithm {
 ///
 /// # Errors
 ///
-/// Returns [`VaultError::InvalidInput`] for an invalid Base32 secret and
-/// [`VaultError::Crypto`] for a TOTP construction failure.
+/// Returns [`VaultError::InvalidInput`] for a Base32 secret that does not
+/// decode. A short secret is accepted: services still issue 80-bit ones.
 pub fn generate(
     secret: &SecretString,
     algorithm: TotpAlgorithm,
@@ -43,8 +43,8 @@ pub fn generate(
 ///
 /// # Errors
 ///
-/// Returns [`VaultError::InvalidInput`] for malformed configuration and
-/// [`VaultError::Crypto`] for a TOTP construction failure.
+/// Returns [`VaultError::InvalidInput`] for a Base32 secret that does not
+/// decode.
 pub fn verify(
     secret: &SecretString,
     algorithm: TotpAlgorithm,
@@ -70,5 +70,13 @@ fn build(secret: &SecretString, algorithm: TotpAlgorithm) -> Result<TOTP, VaultE
     let bytes = base32::decode(Alphabet::Rfc4648 { padding: false }, &normalized)
         .map(Zeroizing::new)
         .ok_or(VaultError::InvalidInput("TOTP secret is not valid Base32"))?;
-    TOTP::new(algorithm.crate_algorithm(), 6, 1, 30, bytes.to_vec()).map_err(|_| VaultError::Crypto)
+    // `TOTP::new` refuses secrets under 128 bits; RFC 4226 recommends 160 but
+    // many services still issue 80-bit ones, so the vault accepts what they give.
+    Ok(TOTP::new_unchecked(
+        algorithm.crate_algorithm(),
+        6,
+        1,
+        30,
+        bytes.to_vec(),
+    ))
 }

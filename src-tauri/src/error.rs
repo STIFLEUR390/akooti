@@ -44,6 +44,7 @@ const fn vault_code(error: &VaultError) -> &'static str {
         VaultError::CorruptVault => "corrupt_vault",
         VaultError::SystemFolderProtected => "system_folder_protected",
         VaultError::NotFound => "not_found",
+        VaultError::Forbidden => "forbidden",
         VaultError::InvalidInput(_) => "invalid_input",
         VaultError::Io(_) => "io",
         VaultError::Database(_) => "database",

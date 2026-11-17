@@ -19,6 +19,9 @@ pub enum VaultError {
     /// The requested record does not exist or is hidden by a filter.
     #[error("record not found")]
     NotFound,
+    /// The caller is not allowed to perform this action (scope, folder, token).
+    #[error("access denied")]
+    Forbidden,
     /// The request violates a domain invariant.
     #[error("invalid input: {0}")]
     InvalidInput(&'static str),

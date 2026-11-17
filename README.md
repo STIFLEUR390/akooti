@@ -187,6 +187,7 @@ Chaque jeton est limité à un ou plusieurs dossiers et à des permissions expli
 
 | Outil                   | Rôle                                                                                    | Permission        |
 | ----------------------- | --------------------------------------------------------------------------------------- | ----------------- |
+| `vault_status`          | Décrit le jeton courant : nom, portées, dossiers autorisés et expiration                | —                 |
 | `vault_search`          | Recherche par titre / URL / identifiant — **métadonnées seules**                        | `read_metadata`   |
 | `vault_blind_autofill`  | Remplit un formulaire via l'extension WXT avec des sélecteurs CSS/JS fournis            | `blind_fill`      |
 | `vault_cdp_autofill`    | Remplit un navigateur piloté par IA via Chrome DevTools Protocol                        | `blind_fill`      |
@@ -206,7 +207,18 @@ Exemple de configuration client :
 }
 ```
 
-> Le jeton est visible dans l'application desktop (page **Accès IA**), avec ses dossiers autorisés, ses scopes et son expiration.
+> Le jeton est visible dans l'application desktop (page **Accès IA**), avec ses dossiers autorisés, ses scopes et son expiration. Le secret n'est affiché qu'une fois, à la création.
+
+**État d'implémentation (phase 5)**
+
+- Le serveur MCP stdio (`rmcp`), les jetons cloisonnés, l'audit et le daemon
+  IPC local sont opérationnels : `akooti mcp --token …` parle au daemon par un
+  socket Unix `0600` (`$XDG_RUNTIME_DIR/akooti/daemon.sock`).
+- `vault_cdp_autofill`, `vault_create_and_fill` et `vault_exec` sont branchés.
+- `vault_blind_autofill` répond `unavailable` : le pont Native Messaging de
+  l'extension arrive à la phase suivante — utiliser `vault_cdp_autofill` en
+  attendant. Le transport Windows (named pipe) est également différé
+  (`docs/adr/0006-transport-ipc-socket-unix.md`).
 
 ## Démarrage rapide
 
@@ -273,6 +285,30 @@ Le dépôt est prévu pour être piloté par le [MCP Server Tauri](https://githu
 
 Une fois connecté, l'agent peut prendre des screenshots du webview, inspecter le DOM, exécuter des commandes IPC, suivre le trafic IPC et lire les logs console.
 
+### Coffre et jetons de test locaux
+
+Les tests de bout en bout se jouent dans un coffre **jetable**, jamais dans le
+coffre réel : l'application est lancée avec un profil XDG dédié
+(`XDG_DATA_HOME=/tmp/opencode/akooti-data`) et un mot de passe maître de test.
+Les identifiants, les jetons MCP et la recette vivent dans deux fichiers **non
+versionnés** (`.gitignore` : `*.local.txt`, `opencode.json`) :
+
+- `TEST-VAULT.local.txt` — coffre de test, jetons MCP, recette et procédure de
+  nettoyage ;
+- `opencode.json` — serveur MCP `akooti` local au projet, pointé sur
+  `target/debug/akooti mcp --token …`.
+
+Deux points d'entretien, à traiter avant de relancer la recette :
+
+1. **Le coffre de test vit dans `/tmp`, effacé à chaque redémarrage.** S'il a
+   disparu, l'application propose « Nouveau coffre » : le recréer avec le mot de
+   passe maître de `TEST-VAULT.local.txt`, puis recréer l'entrée de test et les
+   jetons (le secret d'un jeton n'est affiché qu'une fois).
+2. **Les jetons MCP test expirent** (1 jour pour les jetons restreints, 30 jours
+   pour le jeton principal). Passé ce délai, tout appel répond
+   `invalid_credentials` : réémettre un jeton dans **Accès IA** et mettre à jour
+   `TEST-VAULT.local.txt` **et** `opencode.json`, qui doivent rester alignés.
+
 ### Qualité
 
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`
@@ -301,7 +337,8 @@ Le détail exécutable vit dans le projet Kaneo **AKO — Akooti**.
 
 ## Contribuer
 
-1. Ouvrir une issue ou reprendre une tâche Kaneo.
+1. Ouvrir une issue ou reprendre une tâche du tableau Kaneo public :
+   [kaneo.t2ol.org/public-project/ql4kabfti5m3hlbofdlb5bek](https://kaneo.t2ol.org/public-project/ql4kabfti5m3hlbofdlb5bek).
 2. Créer une branche (`feat/…`, `fix/…`, `chore/…`).
 3. Respecter `docs/regles.md` — en particulier les invariants Zero-Leak et `zeroize`.
 4. Ajouter les tests du cœur métier dans `crates/akooti-core`.

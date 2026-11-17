@@ -15,6 +15,7 @@
 mod biometrics;
 mod cli;
 mod commands;
+mod daemon;
 mod dto;
 mod error;
 mod headless;
@@ -22,6 +23,8 @@ mod tray;
 mod vault_runtime;
 
 use commands::clipboard::ClipboardGuard;
+
+use std::sync::Arc;
 
 use akooti_core::VaultPaths;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -111,16 +114,33 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
             commands::import_export::pick_import_file,
             commands::import_export::preview_import_file,
             commands::import_export::import_file,
+            commands::mcp::list_mcp_tokens,
+            commands::mcp::create_mcp_token,
+            commands::mcp::revoke_mcp_token,
+            commands::mcp::delete_mcp_token,
+            commands::mcp::list_mcp_audit_log,
+            commands::mcp::daemon_status,
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title("Akooti")?;
             }
             let data_dir = app.path().app_data_dir()?;
-            if !app.manage(VaultRuntime::new(VaultPaths::under_app_data(&data_dir))) {
+            let runtime = Arc::new(VaultRuntime::new(VaultPaths::under_app_data(&data_dir)));
+            if !app.manage(Arc::clone(&runtime)) {
                 return Err(std::io::Error::other("vault runtime is already managed").into());
             }
             app.manage(ClipboardGuard::default());
+            // The daemon is the only holder of the master key: headless
+            // entrypoints talk to it over an owner-only local socket.
+            match daemon::start(Arc::clone(&runtime)) {
+                Ok(handle) => {
+                    app.manage(handle);
+                }
+                Err(reason) => {
+                    tracing::warn!(%reason, "local daemon did not start");
+                }
+            }
             tray::install(app.handle())?;
             Ok(())
         })
@@ -129,7 +149,7 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     app.run(|app, event| {
         // Early events (window creation, first ready tick) can arrive before
         // `setup` has registered the runtime: skip them instead of panicking.
-        let Some(runtime) = app.try_state::<VaultRuntime>() else {
+        let Some(runtime) = app.try_state::<Arc<VaultRuntime>>() else {
             return;
         };
         match event {

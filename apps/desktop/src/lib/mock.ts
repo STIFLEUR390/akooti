@@ -32,6 +32,10 @@ import type {
   ImportPreview,
   ImportReport,
   ItemFilter,
+  McpAuditEntry,
+  McpScope,
+  McpToken,
+  McpTokenDraft,
   PassphraseOptions,
   PasswordOptions,
   UpdateItemInput,
@@ -61,6 +65,8 @@ interface MockState {
   items: MockItem[];
   rules: RoutingRule[];
   routingEnabled: boolean;
+  tokens: McpToken[];
+  audit: McpAuditEntry[];
 }
 
 function now(): number {
@@ -240,6 +246,8 @@ export function createMockApi(): AkootiApi {
     items: [],
     rules: [],
     routingEnabled: true,
+    tokens: [],
+    audit: [],
   };
 
   function requireUnlocked(): void {
@@ -673,6 +681,77 @@ export function createMockApi(): AkootiApi {
         issues: [],
         cleanup: options.secureDeleteSource ? "completed" : "not_requested",
       };
+    },
+
+    async listMcpTokens(): Promise<McpToken[]> {
+      requireUnlocked();
+      return state.tokens;
+    },
+
+    async createMcpToken(draft: McpTokenDraft) {
+      requireUnlocked();
+      const name = draft.name.trim();
+      if (!name) {
+        throw new IpcError("invalid_input", "Le nom du jeton est requis.");
+      }
+      if (draft.scopes.length === 0 || draft.folderIds.length === 0) {
+        throw new IpcError("invalid_input", "Choisissez au moins une portée et un dossier.");
+      }
+      const stamp = now();
+      const token: McpToken = {
+        id: newId(),
+        name,
+        tokenPrefix: "ak_mcp_demo0000",
+        scopes: draft.scopes as McpScope[],
+        folderIds: draft.folderIds,
+        defaultCreateFolderId: draft.defaultCreateFolderId ?? null,
+        expiresAt: draft.ttlDays && draft.ttlDays > 0 ? stamp + draft.ttlDays * 86_400 : null,
+        revokedAt: null,
+        lastUsedAt: null,
+        createdAt: stamp,
+        active: true,
+      };
+      state.tokens = [token, ...state.tokens];
+      state.audit = [
+        {
+          id: newId(),
+          tokenId: token.id,
+          action: "access_denied",
+          targetItemId: null,
+          targetFolderId: null,
+          targetOrigin: null,
+          status: "success",
+          details: "jeton créé",
+          createdAt: stamp,
+        },
+        ...state.audit,
+      ];
+      return { token, secret: `ak_mcp_${crypto.randomUUID().replaceAll("-", "")}` };
+    },
+
+    async revokeMcpToken(id: string): Promise<McpToken> {
+      requireUnlocked();
+      const token = state.tokens.find((candidate) => candidate.id === id);
+      if (!token) {
+        throw new IpcError("not_found", "Ce jeton n'existe plus.");
+      }
+      token.revokedAt = now();
+      token.active = false;
+      return token;
+    },
+
+    async deleteMcpToken(id: string): Promise<void> {
+      requireUnlocked();
+      state.tokens = state.tokens.filter((candidate) => candidate.id !== id);
+    },
+
+    async listMcpAuditLog(limit = 50): Promise<McpAuditEntry[]> {
+      requireUnlocked();
+      return state.audit.slice(0, limit);
+    },
+
+    async daemonStatus() {
+      return { running: false, socketPath: null, capabilities: [] };
     },
 
     async copySecret(value: string): Promise<ClipboardReceipt> {

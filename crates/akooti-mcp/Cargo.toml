@@ -9,3 +9,15 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+akooti-ipc = { path = "../akooti-ipc" }
+rmcp = { version = "3.10", features = ["transport-io"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

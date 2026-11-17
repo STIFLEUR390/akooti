@@ -18,6 +18,7 @@ import { useTotp } from "../hooks/useTotp";
 import { useVaultData } from "../hooks/useVaultData";
 import type { AkootiApi, BuildInfo, PasswordOptions } from "../lib/ipc";
 import { ImportPage } from "./ImportPage";
+import { McpPage } from "./McpPage";
 import { RoutingPage } from "./RoutingPage";
 
 interface VaultPageProps {
@@ -250,6 +251,8 @@ export function VaultPage({
             onApplied={() => void vault.reload()}
           />
         ) : null}
+
+        {vault.screen === "mcp" ? <McpPage api={api} folders={folders} notices={notices} /> : null}
       </main>
 
       {modal.kind === "create" || modal.kind === "edit" ? (

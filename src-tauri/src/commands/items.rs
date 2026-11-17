@@ -4,6 +4,7 @@
 //! [`reveal_secret`], which the UI calls from an explicit user gesture and
 //! which always carries a 30-second expiry.
 
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use akooti_core::TotpAlgorithm;
@@ -30,7 +31,7 @@ pub struct ItemFilterDto {
 /// Lists item metadata, never secrets.
 #[tauri::command]
 pub fn list_items(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     filter: Option<ItemFilterDto>,
 ) -> Result<Vec<VaultItemDto>, CommandError> {
     runtime.touch();
@@ -46,7 +47,7 @@ pub fn list_items(
 /// Fetches one item's metadata.
 #[tauri::command]
 pub fn get_item(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
 ) -> Result<VaultItemDto, CommandError> {
     runtime.touch();
@@ -57,7 +58,7 @@ pub fn get_item(
 /// Creates an item.
 #[tauri::command]
 pub fn create_item(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     draft: CreateItemInput,
 ) -> Result<VaultItemDto, CommandError> {
     let draft = draft.into_core().map_err(invalid_input)?;
@@ -69,7 +70,7 @@ pub fn create_item(
 /// Applies a metadata-only edit; stored secrets are left untouched.
 #[tauri::command]
 pub fn update_item(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     draft: UpdateItemInput,
 ) -> Result<VaultItemDto, CommandError> {
     let id = draft.id.clone();
@@ -81,7 +82,7 @@ pub fn update_item(
 
 /// Soft-deletes an item.
 #[tauri::command]
-pub fn delete_item(runtime: State<'_, VaultRuntime>, id: String) -> Result<(), CommandError> {
+pub fn delete_item(runtime: State<'_, Arc<VaultRuntime>>, id: String) -> Result<(), CommandError> {
     runtime.touch();
     runtime.with_vault_mut(|vault| vault.delete_item(&id))?;
     Ok(())
@@ -90,7 +91,7 @@ pub fn delete_item(runtime: State<'_, VaultRuntime>, id: String) -> Result<(), C
 /// Writes or clears one encrypted field.
 #[tauri::command]
 pub fn set_item_secret(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
     field: String,
     value: Option<String>,
@@ -106,7 +107,7 @@ pub fn set_item_secret(
 /// Reveals one secret for an explicit UI action, with a 30-second expiry.
 #[tauri::command]
 pub fn reveal_secret(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
     field: String,
     custom_field_id: Option<String>,
@@ -123,7 +124,7 @@ pub fn reveal_secret(
 /// The code is a short-lived secret: it is returned once and never logged.
 #[tauri::command]
 pub fn totp_code(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     id: String,
 ) -> Result<RevealedSecretDto, CommandError> {
     runtime.touch();
@@ -141,7 +142,7 @@ pub fn totp_code(
 /// Adds one custom field to an item.
 #[tauri::command]
 pub fn add_item_custom_field(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     item_id: String,
     field: CustomFieldInputDto,
 ) -> Result<VaultItemDto, CommandError> {
@@ -154,7 +155,7 @@ pub fn add_item_custom_field(
 /// Removes one custom field from an item.
 #[tauri::command]
 pub fn remove_item_custom_field(
-    runtime: State<'_, VaultRuntime>,
+    runtime: State<'_, Arc<VaultRuntime>>,
     item_id: String,
     field_id: String,
 ) -> Result<(), CommandError> {

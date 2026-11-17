@@ -43,6 +43,15 @@ bun install
 | `cargo test --workspace`                                | Tests Rust                                               |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints Rust                                               |
 
+## Tâches et suivi
+
+Le backlog exécutable vit sur le tableau Kaneo public du projet **AKO —
+Akooti** :
+<https://kaneo.t2ol.org/public-project/ql4kabfti5m3hlbofdlb5bek>.
+
+Chaque PR référence la tâche qu'elle ferme. Les statuts sont des colonnes
+(`to-do`, `in-progress`, `in-review`, `done`).
+
 ## Règles non négociables
 
 Elles sont détaillées dans [`docs/regles.md`](../docs/regles.md).

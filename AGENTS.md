@@ -13,18 +13,32 @@ Only part of the documented design is implemented; check `src/` before assuming 
   failures stay typed and must not echo decrypted values. `import_file` securely
   deletes the source only after commit and reports cleanup failures without rolling
   back the import.
-- `crates/akooti-mcp` — stub (`src/lib.rs` only). The MCP server and injection engines
-  land in phase 2.
-- `src-tauri` — desktop shell for phase 4: `lib.rs` routes the CLI modes before any
-  window (`cli.rs`), keeps headless `mcp`/`native-host` stubs (`headless.rs`), installs
-  the tray (`tray.rs`) and owns the 15-minute vault lifecycle (`vault_runtime.rs`).
+- `crates/akooti-ipc` — the local wire protocol: length-prefixed JSON frames (4-byte
+  LE, 1 MiB cap), `Request`/`Response`, socket discovery (`AKOOTI_SOCKET`, else
+  `$XDG_RUNTIME_DIR/akooti/daemon.sock`) and the blocking `DaemonClient`. Unix socket
+  only; Windows named pipes are deferred (ADR 0006).
+- `crates/akooti-mcp` — the `rmcp` stdio server: `vault_status`, `vault_search`,
+  `vault_blind_autofill`, `vault_cdp_autofill`, `vault_create_and_fill`, `vault_exec`.
+  It holds no key and no vault handle: every tool forwards the token to the daemon and
+  maps a refusal to a tool error with a stable code. Zero-Leak tests live in-file.
+- `src-tauri` — desktop shell: `lib.rs` routes the CLI modes before any window
+  (`cli.rs`), `headless.rs` runs the real MCP server (`mcp`) and the phase-6 stub
+  (`native-host`), installs the tray (`tray.rs`) and owns the 15-minute vault lifecycle
+  (`vault_runtime.rs`) as an `Arc` shared with `daemon/`. `daemon/` is the local IPC
+  server (socket `0600`, token auth, audit) plus the injection engines: `inject.rs`
+  (CDP now, Native Messaging later) and `exec.rs` (`vault_exec` with output masking).
   `commands/` is the whole typed IPC surface (vault, folders, items, generator,
-  routing, import/export, clipboard); `dto.rs` holds the serde payloads and `error.rs`
-  the stable error codes. `biometrics.rs` reports no provider (ADR 0005).
+  routing, import/export, clipboard, mcp); `dto.rs` holds the serde payloads and
+  `error.rs` the stable error codes. `biometrics.rs` reports no provider (ADR 0005).
+- `crates/akooti-core/src/mcp/` — token generation/hashing/scopes, the SQLite store and
+  the audit trail; `vault_mcp.rs` holds the scoped operations (`mcp_search`,
+  `mcp_fill_plan`, `mcp_create_ephemeral`, `mcp_env`; the hourly `purge_expired` pass removes them).
+  Tokens are stored as SHA-256 digests and compared in constant time.
 - `apps/desktop` — the React/Vite vault UI: `lib/ipc.ts` is the typed command bridge
   (with an in-memory mock used outside Tauri), `hooks/` owns theme, shortcuts, reveal
   countdown and vault data, `components/` and `pages/` render the unlock screen, the
-  three-column vault, the generator, the import wizard and the routing page.
+  three-column vault, the generator, the import wizard, the routing page and the AI
+  access page (tokens, one-time secret, audit trail).
   `apps/extension` — WXT with only `entrypoints/background.ts`.
 - `packages/shared` — domain types and wire protocols, exported as raw `.ts` (no build
   step). Import as `@akooti/shared`; it is aliased in `apps/desktop/vite.config.ts` and
@@ -47,12 +61,13 @@ bun run build                   # build every package that defines a build scrip
 bun run lint                    # ESLint (flat config)
 bun run format:check            # Prettier; ignores docs/ and bun.lock
 bun run typecheck               # wxt prepare, then tsc per package
-bun test                        # bun:test (currently only packages/shared)
+bun test                        # bun:test (shared + desktop lib/ and mock/)
 bun test packages/shared/src/models.test.ts   # one TS suite
 cargo test -p akooti-core --locked
 cargo test -p akooti-core --test import_pipeline_test   # one integration suite
+cargo test -p akooti-core -p akooti-ipc -p akooti-mcp --locked   # what CI runs without Tauri
 cargo test -p akooti-core <name>                        # one Rust test
-cargo clippy -p akooti-core --all-targets --locked -- -D warnings
+cargo clippy -p akooti-core -p akooti-ipc -p akooti-mcp --all-targets --locked -- -D warnings
 cargo fmt --all --check         # safe without Tauri system deps
 ```
 
