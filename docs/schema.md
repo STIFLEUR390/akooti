@@ -118,12 +118,13 @@ jetons MCP, les règles de routage et les tests s'y réfèrent.
 | `item_custom_fields` | Champs personnalisés, chiffrés, avec `sort_order` et `is_secret`                        | AAD `…:custom:{id}` |
 | `password_history`   | Versions précédentes du mot de passe, chiffrées                                        | Écrit uniquement en cas de changement réel |
 
-### 2.5 `passkeys` — table créée, usage prévu en phase 6
+### 2.5 `passkeys` — table créée, écriture par le coffre à faire
 
 `credential_id` unique, `rp_id`/`rp_name`, `user_handle`, clé privée chiffrée
 (`encrypted_private_key` + nonce), `sign_count`, `last_used_at`. La table existe
 pour que la migration reste unique ; aucune écriture n'a lieu tant que
-l'interception WebAuthn n'est pas livrée.
+l'authentificateur WebAuthn côté coffre n'est pas livré (l'interception côté
+navigateur existe, voir [ADR 0008](./adr/0008-extension-native-messaging.md)).
 
 ### 2.6 `local_routing_rules` — routage `Dev Local`
 

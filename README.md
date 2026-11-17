@@ -55,7 +55,7 @@ Le détail par fonction est dans [`docs/fonctionalites.md`](./docs/fonctionalite
 ### Authentification moderne
 
 - ✅ **TOTP intégré** — codes à 6 chiffres, SHA-1 / SHA-256, affichage temps réel, copie rapide et remplissage aveugle par le MCP (CDP).
-- 🧭 **Passkeys (WebAuthn / FIDO2)** — interception de `navigator.credentials.create()` / `get()` en `world: MAIN`, signature P-256 / Ed25519, clés privées stockées chiffrées. La table existe déjà dans le schéma ; le fournisseur arrive en phase 6.
+- ⚠️ **Passkeys (WebAuthn / FIDO2)** — interception de `navigator.credentials.create()` / `get()` en `world: MAIN` avec un shim injecté sous nonce ; la signature et les clés privées côté coffre restent à faire, la cérémonie retombe donc sur le navigateur (voir [`docs/adr/0008`](./docs/adr/0008-extension-native-messaging.md)).
 - ⚠️ **Biométrie native** — trait d'union présent (Windows Hello, Touch ID, Linux Polkit / FIDO2), aucun fournisseur branché : l'interface masque le contrôle (voir [`docs/adr/0005`](./docs/adr/0005-biometrie-deverrouillage.md)).
 
 ### Routage & import universel
@@ -69,7 +69,8 @@ Le détail par fonction est dans [`docs/fonctionalites.md`](./docs/fonctionalite
 - ✅ **Serveur MCP stdio** — `akooti mcp --token <clé>` exposé aux agents, sans accès à la clé maître.
 - ✅ **Jetons cloisonnés par dossier (RBAC)** — permissions granulaires (`read_metadata`, `blind_fill`, `create_and_fill`, `exec_env`), TTL, révocation immédiate, journal d'audit local.
 - ✅ **Injection aveugle par CDP** — remplissage d'une page pilotée par IA via Chrome DevTools Protocol, origine vérifiée strictement, aucune valeur retournée.
-- 🧭 **Injection par sélecteurs via l'extension** — même contrat, transporté par Native Messaging (phase 6) ; en attendant, l'outil répond `unavailable`.
+- ✅ **Pont navigateur (Native Messaging)** — l'hôte natif recopie les trames entre l'extension et le daemon **sans jamais les décoder** ; la popup remplit, copie et capture les sélecteurs sans passer par un agent ([`docs/adr/0008`](./docs/adr/0008-extension-native-messaging.md)).
+- ⚠️ **Injection pilotée par un agent via l'extension** — le pont ne sert que les remplissages initiés par l'extension : `vault_blind_autofill` répond `unavailable`, utiliser `vault_cdp_autofill`.
 - ✅ **`vault_exec`** — secrets injectés dans la mémoire d'un processus enfant (`docker compose up`, scripts de test), avec masquage automatique dans `stdout` / `stderr`.
 - ✅ **Agent Skill embarqué** — `skills/akooti/SKILL.md` guide les agents sur l'usage sûr du MCP et de la CLI.
 
@@ -96,13 +97,13 @@ Un **binaire unique Rust (`akooti`)** embarque l'interface GUI, le daemon, le po
 |    React + TypeScript          Claude Code, Codex, Cursor…      Chrome/Edge/FF     |
 +---------+----------------------------+-------------------------------+-------------+
           | Tauri IPC                  | JSON-RPC sur stdio            | Native Msg
-          | (capabilities)             | (`akooti mcp --token …`)      | (phase 6)
+          | (capabilities)             | (`akooti mcp --token …`)      | (hôte natif)
           v                            v                               v
 +---------+----------------------------+-------------------------------+-------------+
 |                        BINAIRE UNIQUE RUST (`akooti`)                              |
 |                                                                                    |
 |   [ Interface + tray ]  <--- IPC local (socket Unix 0600) --->  [ Serveur MCP ]    |
-|            |                        version 1, 1 Mio max             (sans clé)    |
+|            |                        version 2, 1 Mio max             (sans clé)    |
 |            +------------------------------+-----------------------------+          |
 |                                           v                                        |
 |                        +------------------------------------+                      |
@@ -132,7 +133,7 @@ tout reste sur l'appareil.
 **Principes structurants :**
 
 1. **Cœur métier isolé** — `akooti-core` n'importe aucune dépendance Tauri, WebView ou React (testable, portable vers le mobile).
-2. **Un binaire, plusieurs modes** — `akooti` (GUI + daemon), `akooti mcp --token` (serveur MCP headless), `akooti native-host` (pont WXT, phase 6), `akooti help` / `version`.
+2. **Un binaire, plusieurs modes** — `akooti` (GUI + daemon), `akooti mcp --token` (serveur MCP headless), `akooti native-host` (pont WXT), `akooti native-register` (manifestes Native Messaging), `akooti help` / `version`.
 3. **Une seule clé** — le daemon la détient ; l'interface, le serveur MCP et les sous-processus n'y ont jamais accès.
 4. **Secret jamais dans le contexte LLM** — la frontière MCP ne transporte que des métadonnées et des résultats d'action.
 5. **Socket local privé** — `0600` dans un dossier réservé à l'utilisateur, aucun port TCP, aucun serveur HTTP local.
@@ -143,7 +144,7 @@ tout reste sur l'appareil.
 | ------------------- | ---------------------------------------------------------------------------------------------------- |
 | Application desktop | Tauri v2 (Rust + React + TypeScript + Tailwind CSS)                                                  |
 | CLI / daemon        | `tauri-plugin-cli`, daemon IPC (socket Unix `0600`, named pipe Windows à venir), tray                |
-| Extension           | WXT (TypeScript / React), Manifest V3 & V2, Chrome / Brave / Edge / Firefox / Safari                 |
+| Extension           | WXT (TypeScript / React), MV3 (Chrome / Brave / Edge) et MV2 (Firefox), shim WebAuthn en monde MAIN  |
 | Gestion des paquets | Bun 1.4+ (workspaces natifs, `bun.lock` commité)                                                     |
 | Base locale         | SQLCipher (via `rusqlite`) + migrations SQL versionnées                                              |
 | Cryptographie       | Argon2id (KDF), XChaCha20-Poly1305 (AEAD), `zeroize`, `OsRng`                                        |
@@ -176,6 +177,8 @@ akooti/
 │   ├── capabilities/default.json
 │   └── src/
 │       ├── cli.rs, headless.rs    # routage des modes, modes sans fenêtre
+│       ├── native_host.rs         # pont Native Messaging : pompe à trames, zéro décodage
+│       ├── native_register.rs     # manifestes par navigateur (install, check, uninstall)
 │       ├── vault_runtime.rs       # Arc<VaultRuntime>, verrouillage auto
 │       ├── daemon/                # serveur IPC + inject.rs (CDP) + exec.rs (masquage)
 │       └── commands/              # surface IPC typée
@@ -184,20 +187,22 @@ akooti/
 │
 └── apps/
     ├── desktop/                   # Interface React (coffre, générateur, import, routage, Accès IA)
-    └── extension/                 # Extension WXT (phase 6)
+    └── extension/                 # Extension WXT : service worker, popup, script de contenu, shim WebAuthn
 ```
 
 ## Modèle de sécurité
 
-| Menace                                               | Contre-mesure                                                                     |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------- |
-| LLM qui lit un secret                                | Les tools MCP ne renvoient que des métadonnées ; l'injection est aveugle          |
-| Secret en RAM après usage                            | `zeroize::Zeroizing<T>` systématique + verrouillage auto (15 min / veille)        |
-| Lecture du socket IPC par un autre utilisateur       | Socket `0600` dans un dossier privé ; named pipe Windows à venir ; aucun port TCP |
-| Exfiltration côté cloud (🧭, quand la sync existera) | E2EE client XChaCha20-Poly1305 ; le serveur ne voit que `ciphertext` + `nonce`    |
-| Jeton MCP trop permissif                             | Scopes granulaires + liste blanche de `folder_id` + TTL + audit                   |
-| Fichier d'import en clair laissé sur le disque       | Proposition d'effacement sécurisé après commit SQLCipher                          |
-| Presse-papiers qui fuit                              | Effacement automatique après 30 s                                                 |
+| Menace                                               | Contre-mesure                                                                                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| LLM qui lit un secret                                | Les tools MCP ne renvoient que des métadonnées ; l'injection est aveugle                                                                   |
+| Secret en RAM après usage                            | `zeroize::Zeroizing<T>` systématique + verrouillage auto (15 min / veille)                                                                 |
+| Lecture du socket IPC par un autre utilisateur       | Socket `0600` dans un dossier privé ; named pipe Windows à venir ; aucun port TCP                                                          |
+| Exfiltration côté cloud (🧭, quand la sync existera) | E2EE client XChaCha20-Poly1305 ; le serveur ne voit que `ciphertext` + `nonce`                                                             |
+| Jeton MCP trop permissif                             | Scopes granulaires + liste blanche de `folder_id` + TTL + audit                                                                            |
+| Fichier d'import en clair laissé sur le disque       | Proposition d'effacement sécurisé après commit SQLCipher                                                                                   |
+| Presse-papiers qui fuit                              | Effacement automatique après 30 s                                                                                                          |
+| Site tiers qui se fait passer pour l'extension       | Manifeste `allowed_origins` limité à l'id exact de l'extension ; toute connexion qui ne s'annonce pas `native-host` reçoit `access_denied` |
+| Page hostile qui déclenche une cérémonie WebAuthn    | Shim injecté sous nonce, garde de `rpId`, aucune signature possible côté coffre aujourd'hui                                                |
 
 Règles détaillées : [`docs/regles.md`](./docs/regles.md).
 
@@ -205,14 +210,14 @@ Règles détaillées : [`docs/regles.md`](./docs/regles.md).
 
 Chaque jeton est limité à un ou plusieurs dossiers et à des permissions explicites.
 
-| Outil                   | Rôle                                                                                                          | Permission        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `vault_status`          | Décrit le jeton courant : nom, portées, dossiers autorisés et expiration                                      | —                 |
-| `vault_search`          | Recherche par titre / URL / identifiant — **métadonnées seules**                                              | `read_metadata`   |
-| `vault_blind_autofill`  | Remplit un formulaire via l'extension WXT avec des sélecteurs CSS/JS fournis (phase 6 : répond `unavailable`) | `blind_fill`      |
-| `vault_cdp_autofill`    | Remplit un navigateur piloté par IA via Chrome DevTools Protocol                                              | `blind_fill`      |
-| `vault_create_and_fill` | Génère un mot de passe, crée l'entrée (dossier autorisé du jeton, TTL) et remplit l'inscription               | `create_and_fill` |
-| `vault_exec`            | Lance une commande avec les secrets injectés en variables d'environnement, logs masqués                       | `exec_env`        |
+| Outil                   | Rôle                                                                                            | Permission        |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | ----------------- |
+| `vault_status`          | Décrit le jeton courant : nom, portées, dossiers autorisés et expiration                        | —                 |
+| `vault_search`          | Recherche par titre / URL / identifiant — **métadonnées seules**                                | `read_metadata`   |
+| `vault_blind_autofill`  | Remplissage par l'extension WXT, réservé au pont natif : un agent reçoit `unavailable`          | `blind_fill`      |
+| `vault_cdp_autofill`    | Remplit un navigateur piloté par IA via Chrome DevTools Protocol                                | `blind_fill`      |
+| `vault_create_and_fill` | Génère un mot de passe, crée l'entrée (dossier autorisé du jeton, TTL) et remplit l'inscription | `create_and_fill` |
+| `vault_exec`            | Lance une commande avec les secrets injectés en variables d'environnement, logs masqués         | `exec_env`        |
 
 Exemple de configuration client :
 
@@ -229,15 +234,22 @@ Exemple de configuration client :
 
 > Le jeton est visible dans l'application desktop (page **Accès IA**), avec ses dossiers autorisés, ses scopes et son expiration. Le secret n'est affiché qu'une fois, à la création.
 
-**État d'implémentation (phase 5)**
+**État d'implémentation (phases 5 et 6)**
 
 - ✅ Le serveur MCP stdio (`rmcp`), les jetons cloisonnés, l'audit et le daemon
   IPC local sont opérationnels : `akooti mcp --token …` parle au daemon par un
   socket Unix `0600` (`$XDG_RUNTIME_DIR/akooti/daemon.sock`).
 - ✅ `vault_cdp_autofill`, `vault_create_and_fill` et `vault_exec` sont branchés.
-- 🧭 `vault_blind_autofill` répond `unavailable` : le pont Native Messaging de
-  l'extension arrive à la phase suivante — utiliser `vault_cdp_autofill` en
-  attendant ([`docs/adr/0006`](./docs/adr/0006-transport-ipc-socket-unix.md)).
+- ✅ Le pont navigateur est livré : `akooti native-host` recopie les trames entre
+  l'extension et le daemon sans les décoder, `akooti native-register` écrit le
+  manifeste de chaque navigateur, et le verbe `vaultExtensionFill` sert les
+  remplissages initiés par la popup
+  ([`docs/adr/0008`](./docs/adr/0008-extension-native-messaging.md)).
+- ⚠️ `vault_blind_autofill` répond toujours `unavailable` à un agent : le pont
+  ne s'ouvre qu'à une connexion qui s'est annoncée `native-host`. Un agent passe
+  par `vault_cdp_autofill`.
+- ⚠️ Les passkeys sont interceptées puis rendues au navigateur : le shim
+  n'a personne à qui demander une signature côté coffre.
 
 ## Démarrage rapide
 
@@ -276,7 +288,8 @@ cargo clippy --workspace --all-targets
 ```bash
 akooti                          # GUI + daemon (tray)
 akooti mcp --token ak_mcp_...   # Serveur MCP stdio pour les agents
-akooti native-host              # Pont Native Messaging (phase 6, sort en code 3 aujourd'hui)
+akooti native-host              # Pont Native Messaging (lancé par le navigateur)
+akooti native-register --browser chrome --extension-id <id>   # manifeste de l'hôte
 akooti help | version           # Aide et version, sans démarrer l'interface
 ```
 
@@ -327,16 +340,16 @@ vivent dans un fichier local non versionné, jamais dans ce README.
 
 ## Feuille de route
 
-| Phase                            | Contenu                                                                                                                                      | État |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| **0 — Fondations**               | Monorepo Cargo + Bun, CI (format, lint, tests, build desktop), conventions, schémas SQL, bridge MCP Tauri                                    | ✅   |
-| **1 — Cryptographie & stockage** | `akooti-core` : Argon2id, XChaCha20-Poly1305, SQLCipher, en-tête d'amorçage, dossiers système, session et verrouillage automatique           | ✅   |
-| **2 — Fonctions du coffre**      | Générateur (mots de passe, passphrases EFF), TOTP, routage `Dev Local`, historique, comptes éphémères                                        | ✅   |
-| **3 — Import universel**         | Buttercup, Bitwarden / Vaultwarden, Proton Pass, KeePass / KeePassXC, 1Password, CSV navigateurs ; aperçu, doublons, effacement de la source | ✅   |
-| **4 — Application desktop**      | Interface Tauri v2 : déverrouillage, coffre, générateur, import, routage, page « Accès IA » ; accessibilité `axe-core`                       | ✅   |
-| **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                   | ✅   |
-| **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, Native Messaging (injection par sélecteurs), passkeys WebAuthn en `world: MAIN`                             | 🧭   |
-| **7+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence, santé du coffre (zxcvbn, HIBP k-Anonymity)                | 🧭   |
+| Phase                            | Contenu                                                                                                                                                                               | État |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| **0 — Fondations**               | Monorepo Cargo + Bun, CI (format, lint, tests, build desktop), conventions, schémas SQL, bridge MCP Tauri                                                                             | ✅   |
+| **1 — Cryptographie & stockage** | `akooti-core` : Argon2id, XChaCha20-Poly1305, SQLCipher, en-tête d'amorçage, dossiers système, session et verrouillage automatique                                                    | ✅   |
+| **2 — Fonctions du coffre**      | Générateur (mots de passe, passphrases EFF), TOTP, routage `Dev Local`, historique, comptes éphémères                                                                                 | ✅   |
+| **3 — Import universel**         | Buttercup, Bitwarden / Vaultwarden, Proton Pass, KeePass / KeePassXC, 1Password, CSV navigateurs ; aperçu, doublons, effacement de la source                                          | ✅   |
+| **4 — Application desktop**      | Interface Tauri v2 : déverrouillage, coffre, générateur, import, routage, page « Accès IA » ; accessibilité `axe-core`                                                                | ✅   |
+| **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                            | ✅   |
+| **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, pont Native Messaging, `vaultExtensionFill`, popup (remplissage, copie, capture), shim WebAuthn `world: MAIN` — authentificateur côté coffre différé | ⚠️   |
+| **7+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence, santé du coffre (zxcvbn, HIBP k-Anonymity)                                                         | 🧭   |
 
 Le détail exécutable vit dans le projet Kaneo **AKO — Akooti** ; le périmètre
 fonctionnel avec les statuts est dans
@@ -351,7 +364,7 @@ fonctionnel avec les statuts est dans
 - [`docs/schema.md`](./docs/schema.md) — schéma SQLCipher local et conception Supabase E2EE
 - [`docs/testing.md`](./docs/testing.md) — stratégie de test, couverture des contrats critiques, CI
 - [`docs/desktop-tests.md`](./docs/desktop-tests.md) — plan de recette manuelle piloté par le pont MCP Tauri
-- [`docs/adr/`](./docs/adr/) — décisions d'architecture datées (monorepo, stockage, transport, remplissage)
+- [`docs/adr/`](./docs/adr/) — décisions d'architecture datées (monorepo, stockage, transport, remplissage, pont navigateur)
 
 ## Contribuer
 

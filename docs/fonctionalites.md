@@ -15,7 +15,7 @@ Il fait foi pour arbitrer « est-ce déjà là ? » ; la technique est dans
 | Nom               | **Akooti**, exécutable unique `akooti`                                                  |
 | Philosophie       | _Local-first_ (100 % hors ligne), _zero-knowledge_ (chiffrement de bout en bout), _zero-leak_ (aucun secret exposé à un modèle d'IA) |
 | Desktop & CLI     | Tauri v2 (Rust + React/TypeScript), un binaire pour l'interface, le daemon, le pont navigateur et le serveur MCP |
-| Extension         | WXT (TypeScript) compilée vers Chrome, Edge, Brave, Firefox et Safari (MV3 / MV2) 🧭   |
+| Extension         | WXT (TypeScript) compilée vers Chrome, Edge, Brave (MV3) et Firefox (MV2) ✅ ; Safari 🧭       |
 | Stockage          | SQLCipher local + Argon2id + XChaCha20-Poly1305 + effacement mémoire (`zeroize`)       |
 | Hors périmètre    | Serveur propriétaire, modèles d'IA embarqués, pièces jointes volumineuses              |
 
@@ -32,7 +32,7 @@ Il fait foi pour arbitrer « est-ce déjà là ? » ; la technique est dans
 | Double authentification (TOTP)    | Codes à 6 chiffres, pas de 30 s, SHA-1/SHA-256, affichage temps réel et copie rapide                       | ✅     |
 | Déverrouillage biométrique        | Trait d'union présent, aucun fournisseur branché ; l'interface masque le contrôle                          | ⚠️ [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
 | Verrouillage automatique          | Après 15 minutes d'inactivité, mise en veille ou action explicite ; la clé est effacée                     | ✅     |
-| Passkeys (WebAuthn / FIDO2)       | Interception de `navigator.credentials`, signature locale, clé privée stockée dans le coffre                | 🧭 phase 6 |
+| Passkeys (WebAuthn / FIDO2)       | Interception de `navigator.credentials` en place ; la signature et la clé privée côté coffre restent à faire | ⚠️ tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
 
 ## 3. Routage intelligent
 
@@ -76,7 +76,7 @@ mot de passe, de graine TOTP ou de champ personnalisé.
 | `vault_status`          | —                 | Décrit le jeton : nom, portées, dossiers autorisés, expiration                                | ✅     |
 | `vault_search`          | `read_metadata`   | Recherche titre / identifiant / URL, métadonnées seules                                        | ✅     |
 | `vault_cdp_autofill`    | `blind_fill`      | Remplit une page via Chrome DevTools Protocol, origine vérifiée strictement                    | ✅     |
-| `vault_blind_autofill`  | `blind_fill`      | Même remplissage via l'extension et Native Messaging                                          | 🧭 phase 6 (répond `unavailable`) |
+| `vault_blind_autofill`  | `blind_fill`      | Même remplissage via l'extension et Native Messaging                                          | ⚠️ répond `unavailable` : le verbe qui libère des valeurs n'est ouvert qu'au pont natif |
 | `vault_create_and_fill` | `create_and_fill` | Crée un compte avec mot de passe généré et TTL, puis remplit le formulaire d'inscription       | ✅     |
 | `vault_exec`            | `exec_env`        | Lance une commande avec les secrets en variables d'environnement, sortie masquée               | ✅     |
 
@@ -94,7 +94,38 @@ Un skill destiné aux agents ([`skills/akooti/SKILL.md`](../skills/akooti/SKILL.
 documente le mode d'emploi : quel outil pour quel besoin, ce qu'un refus
 signifie, comment réagir sans redemander un mot de passe à l'utilisateur.
 
-## 6. Génération de secrets
+## 6. Extension navigateur
+
+Un source WXT, compilé vers Chrome, Edge, Brave (MV3) et Firefox (MV2). Le
+service worker est le seul processus qui parle au pont natif
+(`org.akooti.host`), lui-même simple pompe vers le socket du daemon
+([ADR 0008](./adr/0008-extension-native-messaging.md)).
+
+| Fonction                        | Comportement attendu                                                                                  | Statut |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ------ |
+| Appairage                       | Jeton créé dans **Accès IA** (`read_metadata` + `blind_fill`), collé dans la popup, vérifié avant d'être stocké, affiché masqué | ✅ |
+| Recherche                       | Métadonnées seules, limitées aux dossiers du jeton ; une requête par validation, pas par frappe        | ✅     |
+| Remplissage aveugle             | Détection du formulaire, sélecteurs de l'entrée puis heuristiques, injection par le setter natif + `input`/`change`/`blur` | ✅ |
+| Copie de secret                 | Identifiant, mot de passe ou code TOTP copié dans l'onglet actif, effacé du presse-papiers après 30 s   | ✅     |
+| Capture de sélecteurs           | Sélecteurs stables affichés dans la popup, à coller dans l'entrée ; l'extension n'écrit jamais le coffre | ✅     |
+| État affiché                    | Coffre déverrouillé / verrouillé / application fermée, jeton masqué, bouton « Dissocier »              | ✅     |
+| Interception WebAuthn           | `navigator.credentials.create`/`get` remplacés dans le monde MAIN, nonce de page, repli systématique sur l'authentificateur du navigateur | ⚠️ aucun credential côté daemon : voir passkeys |
+| Enregistrement du pont          | `akooti native-register` écrit le manifeste par navigateur (`--check`, `--uninstall`, réparation)       | ✅     |
+| Safari                          | Cible WXT, non construite ni testée                                                                    | 🧭     |
+| Windows                         | Manifeste dans le registre, différé avec le named pipe                                                 | 🧭 [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
+
+Garde-fous propres à l'extension :
+
+- le jeton vit dans `storage.local` (jamais `storage.sync`), n'est jamais
+  journalisé et disparaît à la dissociation ;
+- une valeur ne remonte jamais vers la popup : elle va du daemon à la page, ou
+  au presse-papiers ;
+- le content script ne répond qu'avec un compte-rendu (champs remplis,
+  soumission), jamais avec une valeur ;
+- une cérémonie WebAuthn que le daemon ne sait pas servir retombe sur le
+  navigateur : installer Akooti ne casse aucun site.
+
+## 7. Génération de secrets
 
 | Fonction                     | Comportement attendu                                                        | Statut |
 | ---------------------------- | --------------------------------------------------------------------------- | ------ |
@@ -102,7 +133,7 @@ signifie, comment réagir sans redemander un mot de passe à l'utilisateur.
 | Passphrases mémorisables     | Listes Diceware EFF, séparateur et capitalisation configurables              | ✅     |
 | Disponibilité                | Interface desktop et `vault_create_and_fill` (génération interne)            | ✅     |
 
-## 7. Synchronisation et sauvegardes
+## 8. Synchronisation et sauvegardes
 
 | Fonction                          | Comportement attendu                                                                 | Statut |
 | --------------------------------- | ------------------------------------------------------------------------------------ | ------ |
@@ -112,7 +143,7 @@ signifie, comment réagir sans redemander un mot de passe à l'utilisateur.
 | Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | 🧭 |
 | Export d'urgence                  | Export JSON, chiffré ou en clair après confirmation du mot de passe maître            | 🧭     |
 
-## 8. Santé du coffre
+## 9. Santé du coffre
 
 | Fonction                        | Comportement attendu                                                                    | Statut |
 | ------------------------------- | --------------------------------------------------------------------------------------- | ------ |
@@ -120,14 +151,15 @@ signifie, comment réagir sans redemander un mot de passe à l'utilisateur.
 | Réutilisation et ancienneté     | Repérage des mots de passe partagés entre comptes et des secrets trop anciens            | 🧭     |
 | Vérification de fuite (HIBP)    | `k-Anonymity` : seuls les 5 premiers caractères du SHA-1 sont envoyés                     | 🧭     |
 
-## 9. Récapitulatif
+## 10. Récapitulatif
 
 | Domaine                    | Implémenté                                           | Cible                                     |
 | -------------------------- | ---------------------------------------------------- | ----------------------------------------- |
 | Coffre                     | multi-dossiers, historique, TTL, TOTP, verrouillage auto | biométrie, passkeys                   |
 | Routage                    | règles complètes + rétroactif                        | —                                         |
 | Import                     | 10 formats + détection automatique + hygiène          | —                                         |
-| IA                         | 5 outils sur 6, jetons cloisonnés, audit              | `vault_blind_autofill` (extension)        |
+| IA                         | 5 outils sur 6, jetons cloisonnés, audit              | `vault_blind_autofill` côté agent (le pont ne sert que l'extension) |
+| Extension                  | appairage, recherche, remplissage, copie, capture, pont natif | authenticateur WebAuthn, Safari |
 | Génération                 | mots de passe + passphrases                          | —                                         |
 | Sync / sauvegardes         | base locale                                          | Supabase E2EE, Cron S3/Drive/local, export |
 | Santé                      | —                                                    | zxcvbn, réutilisation, HIBP k-Anonymity   |

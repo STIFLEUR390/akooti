@@ -28,12 +28,13 @@ Statuts utilisés : **acceptée**, **remplacée**, **proposée**, **abandonnée*
 | [0005](0005-biometrie-deverrouillage.md)             | Biométrie : trait présent, fournisseur non branché                        | Acceptée |
 | [0006](0006-transport-ipc-socket-unix.md)            | Transport IPC : socket Unix natif, named pipe différé                     | Acceptée |
 | [0007](0007-fills-et-secrets-totp-courts.md)         | Remplissage d'un compte neuf, secrets TOTP courts, audit fidèle           | Acceptée |
+| [0008](0008-extension-native-messaging.md)           | Extension navigateur : pont natif, remplissage piloté par l'extension     | Acceptée |
 
 ## Par où commencer
 
 - **Comprendre la frontière de sécurité** : 0002 (stockage), 0003 (MCP), 0006
-  (transport).
+  (transport), 0008 (pont navigateur : un hôte qui ne décode rien).
 - **Comprendre un écart assumé** : 0005 (biométrie), 0006 (Windows), 0007
-  (TOTP courts).
+  (TOTP courts), 0008 (passkeys servies par le navigateur).
 - **Comprendre l'amorçage du coffre** : 0004 (en-tête public et dérivation de
   clé).

@@ -65,8 +65,15 @@ sont suivies :
 | 3     | Importateurs universels et hygiène post-import                 | ✅     |
 | 4     | Application desktop Tauri v2 (interface du coffre)             | ✅     |
 | 5     | Pont IA : CLI, daemon IPC, serveur MCP Zero-Leak               | ✅     |
-| 6     | Extension multi-navigateurs WXT et passkeys                    | 🧭     |
+| 6     | Extension WXT multi-navigateurs, pont Native Messaging, passkeys | ⚠️     |
 | 7+    | Synchronisation Supabase E2EE, sauvegardes planifiées, santé    | 🧭     |
+
+La phase 6 est livrée **sauf l'authentificateur WebAuthn côté daemon** : le shim
+intercepte bien les cérémonies dans le monde MAIN, mais il n'a personne à qui
+demander une signature et retombe sur le navigateur (`handled: false`). Le reste
+est en place : pont Native Messaging, `vaultExtensionFill`, popup, capture de
+sélecteurs, enregistrement des manifestes par `akooti native-register` — voir
+[ADR 0008](./adr/0008-extension-native-messaging.md).
 
 Les fonctionnalités de synchronisation, de sauvegarde planifiée et de santé du
 coffre sont documentées comme cible ([fonctionalites.md](./fonctionalites.md))

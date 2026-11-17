@@ -2,8 +2,9 @@
 
 Ce document est le **plan de recette** du binaire réel : ce que l'on vérifie,
 comment le rejouer, et ce que l'on a observé. Il couvre la phase 4 (interface
-du coffre) et la phase 5 (jetons, daemon, serveur MCP). La couverture
-automatisée est dans [testing.md](./testing.md).
+du coffre), la phase 5 (jetons, daemon, serveur MCP) et la phase 6 (extension
+navigateur et pont Native Messaging). La couverture automatisée est dans
+[testing.md](./testing.md).
 
 Deux niveaux, complémentaires :
 
@@ -71,7 +72,7 @@ Vérifié le 2026-11-16 (Linux, Fedora 45, WebKitGTK 2.54).
 | 13 | Import Bitwarden (JSON, 2 entrées) | Aperçu 2 entrées / 1 dossier / 0 doublon ; import : 2 importées, 1 routée `Dev Local`, 0 ignorée |
 | 14 | Import avec effacement de la source | Rapport `cleanup: completed`, fichier absent du disque ensuite |
 | 15 | Import avec doublons autorisés | Rapport `imported: 2`, `skipped: 0`, doublons visibles dans la liste |
-| 16 | Modes headless | `akooti help` et `akooti version` répondent ; `akooti mcp` sans jeton sort en 2 ; `akooti native-host` sort en 3 |
+| 16 | Modes headless | `akooti help` et `akooti version` répondent ; `akooti mcp` sans jeton sort en 2 ; `akooti native-host` sans daemon écrit une trame `daemon_unavailable` et sort en 1 (il sortait en 3 tant que le pont était un talon) |
 
 ## 4. Accessibilité
 
@@ -133,7 +134,7 @@ utilisés sont jetables et cloisonnés.
 | `vault_cdp_autofill` (origine erronée) | origine `http://127.0.0.1:9999` | `status: failed`, `detail` « no page target matches the requested origin », audit `error` |
 | `vault_create_and_fill` | sans `selectors` | `status: partial` (« no selector matched ») et **une seule** ligne d'audit `create_and_fill` en `error` |
 | `vault_exec` | `{"itemId":…,"command":["sh","-c","echo $AKOOTI_PASSWORD"]}` | sortie `***`, environnement limité à `AKOOTI_USERNAME`, `AKOOTI_PASSWORD` et `AKOOTI_<CHAMP>` |
-| `vault_blind_autofill` | tout appel | `unavailable` — le pont Native Messaging arrive en phase 6 |
+| `vault_blind_autofill` | tout appel | `unavailable` — le pont natif ne sert que les remplissages initiés par l'extension ([ADR 0008](./adr/0008-extension-native-messaging.md)) |
 
 ### 5.4 Défauts trouvés par cette recette (et corrigés)
 
@@ -151,12 +152,119 @@ cinq constats, tous traités avant la fusion de la phase :
 Ces cinq points sont désormais couverts par des tests : la recette manuelle sert à
 trouver, les tests servent à ne pas régresser.
 
-## 6. Grille à recopier pour une nouvelle phase
+## 6. Phase 6 — extension navigateur et pont Native Messaging
+
+> **État : plan écrit, pas encore déroulé.** Aucun navigateur n'a été piloté
+> pendant l'implémentation : les lignes de §6.3 sont des **attendus**, pas des
+> observations. La part automatisée correspondante est en
+> [testing.md](./testing.md) §4.4, §4.5 et §7.
+
+La phase 6 livre deux moitiés qui ne se connaissent pas : l'extension WXT (un
+source, Chrome/Edge/Brave en MV3 et Firefox en MV2) et `akooti native-host`, une
+**pompe à trames** qui ne désérialise rien (voir
+[ADR 0008](./adr/0008-extension-native-messaging.md)). C'est cette séparation que
+la recette doit mettre à l'épreuve : un hôte qui ne comprend pas les trames ne
+peut pas laisser fuiter un secret, une extension qui ne garde rien ne peut pas
+devenir un second coffre.
+
+### 6.1 Préparer les deux moitiés
+
+```bash
+bun run --filter @akooti/extension build           # .output/chrome-mv3  (MV3)
+bun run --filter @akooti/extension build:firefox   # .output/firefox-mv2 (MV2)
+cargo build -p akooti                              # ./target/debug/akooti
+```
+
+1. **Charger l'extension.** Chrome : `chrome://extensions` → mode développeur →
+   « Charger l'extension non empaquetée » → `.output/chrome-mv3`. Noter
+   l'identifiant affiché (32 lettres `a`–`p`) : c'est **lui seul** que le
+   manifeste doit autoriser. Firefox : `about:debugging#/runtime/this-firefox` →
+   « Charger un module temporaire » → `.output/firefox-mv2/manifest.json` ;
+   l'identifiant est épinglé (`extension@akooti.local`, à la fois dans
+   `apps/extension/wxt.config.ts` et dans
+   `native_register::FIREFOX_EXTENSION_ID`).
+2. **Enregistrer l'hôte.** Une commande par navigateur, sans privilège :
+
+   ```bash
+   ./target/debug/akooti native-register --browser chrome --extension-id <id>
+   # chrome: installed (/home/…/.config/google-chrome/NativeMessagingHosts/org.akooti.host.json)
+   ./target/debug/akooti native-register --browser chrome --extension-id <id> --check
+   # chrome: current (…)
+   ./target/debug/akooti native-register --browser firefox
+   # firefox: installed (/home/…/.mozilla/native-messaging-hosts/org.akooti.host.json)
+   ./target/debug/akooti native-register --browser chrome --uninstall
+   ```
+
+   `--check` est une **barrière** (CI, script d'installation) : `missing`,
+   `outdated` et `unreadable` sortent en 1. `--home` et `--host` permettent de
+   rejouer toute la séquence dans un profil jetable
+   (`--home /tmp/akooti-recette`), sans toucher aux manifestes réels.
+3. **Appairer l'extension.** Dans Akooti, page **Accès IA** : créer un jeton
+   portant les portées `read_metadata` et `blind_fill`, restreint aux dossiers
+   que l'extension peut lire. Le secret ne s'affiche **qu'une fois** : le coller
+   dans le popup (§6.2). C'est l'unique identifiant de l'extension, il ne quitte
+   jamais le navigateur et le daemon le révoque comme les autres.
+
+### 6.2 Parcours du popup
+
+| # | Geste | Attendu |
+| - | ----- | ------- |
+| 1 | Ouvrir le popup sans appairage | pastille « Non appairée », champ `ak_mcp_…`, bouton « Appairer » **désactivé** tant que le jeton n'a pas la forme `ak_mcp_` + 64 hexadécimaux |
+| 2 | Coller un jeton tronqué | message « Un jeton Akooti commence par `ak_mcp_` suivi de 64 caractères hexadécimaux », rien n'est écrit |
+| 3 | Coller un jeton valide, appairer | pastille « Coffre déverrouillé », pied de page `Jeton ak_mcp_xxxx…yyyy` : le secret entier n'est jamais réaffiché |
+| 4 | Fermer l'application, rouvrir le popup | pastille « Application fermée », aucune donnée en cache, l'extension ne bloque pas le navigateur |
+| 5 | Verrouiller le coffre | pastille « Coffre verrouillé », la recherche répond « Coffre verrouillé » (`locked`) |
+| 6 | Rechercher | résultats sans mot de passe, sans graine et sans champ secret ; une ligne d'audit `search` par envoi, jamais une par frappe |
+| 7 | « Remplir » sur la page de test (`127.0.0.1:8808`) | champs identifiant / mot de passe / code remplis, rapport `fieldsFilled`, **aucune valeur** affichée dans le popup |
+| 8 | « Remplir » depuis une page dont l'origine ne correspond pas à l'URL de l'entrée | titre « Action refusée » (`denied`), rien n'est injecté, audit en `error` |
+| 9 | « Copier · mot de passe » | presse-papiers rempli, toast, valeur jamais rendue dans le DOM |
+| 10 | « Capturer » sur un formulaire | sélecteurs CSS affichés dans le popup puis « Copier les sélecteurs » ; le pont **n'écrit pas** dans le coffre, la colle est manuelle |
+| 11 | Passkey sur un site de test (`https://webauthn.io`) | le shim est injecté (`script[data-akooti-nonce]`), le daemon répond `unavailable`, le navigateur reprend la main et la cérémonie aboutit (repli assumé, tâche 6.4) |
+| 12 | Consulter « Activité des agents » | une ligne `blind_autofill` par remplissage, avec origine et statut, sans valeur |
+| 13 | « Dissocier » | jeton retiré de `storage.local`, retour au formulaire d'appairage, le daemon refuse l'ancien jeton s'il est réutilisé |
+
+### 6.3 Preuves de non-fuite propres à la phase
+
+Un remplissage réussi ne suffit pas : la phase 6 n'est valide que si l'on
+démontre **l'absence** du secret là où il pourrait fuiter.
+
+| Où l'on regarde | Attendu |
+| --------------- | ------- |
+| Sortie standard de l'hôte natif | vide : la pompe ne journalise ni ne décode aucune trame |
+| `chrome://extensions` → « Erreurs » / console du service worker | aucune valeur, aucun jeton en clair |
+| `browser.storage.local` | la seule clé `akooti.pairing` (jeton d'appairage), aucune valeur du coffre |
+| Ligne d'audit `blind_autofill` | origine, identifiant d'entrée et statut seulement |
+| `akooti mcp` → `vault_blind_autofill` | erreur d'outil `forbidden` : le verbe qui libère des valeurs reste fermé aux agents |
+| `curl` sur un port local | aucune écoute ouverte par l'extension : la seule voie est le socket Unix du daemon |
+
+### 6.4 Défauts attendus de cette recette
+
+Cette section se remplit pendant le déroulement. Les points déjà connus, non
+corrigés, y figurent d'avance pour ne pas les redécouvrir :
+
+| Constat connu | Raison | Suivi |
+| ------------- | ------ | ----- |
+| La cérémonie WebAuthn retombe toujours sur le navigateur | aucun authentificateur côté daemon | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Windows : ni manifeste (registre) ni socket | transport nommé non implémenté | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
+| Un credential reconstruit n'est pas une instance de `PublicKeyCredential` | objet compatible seulement | `apps/extension/lib/webauthn/credential.ts` |
+
+### 6.5 Preuves automatisées (2026-11-17)
+
+| # | Ce qui est prouvé | Preuve |
+| - | ----------------- | ------ |
+| 1 | La pompe n'altère rien : trames recopiées dans les deux sens, plafond 1 Mio, arrêt propre sur EOF ou port fermé, erreur typée si le daemon est absent | `cargo test -p akooti native_host` (4 tests) |
+| 2 | Manifestes : chemin par navigateur et par OS, `allowed_origins` vs `allowed_extensions`, id validé avant toute écriture, installation idempotente, réparation, désinstallation | `cargo test -p akooti native_register` (10 tests) |
+| 3 | Trame `vaultExtensionFill` : forme dorée `camelCase`, version 2, `FillPayload` jamais affiché | `cargo test -p akooti-ipc` |
+| 4 | Une connexion qui ne s'est pas annoncée `native-host` ne peut pas déclencher de remplissage (`access_denied`) ; le serveur MCP traduit `extensionFill` en erreur `forbidden` | `cargo test -p akooti`, `cargo test -p akooti-mcp` |
+| 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn | `cd apps/extension && bun test lib` (78 tests) |
+
+## 7. Grille à recopier pour une nouvelle phase
 
 ```text
 Phase :            …            Date : …            OS / WebKit : …
 Coffre :           jetable (XDG_DATA_HOME=/tmp/…)  ☐
 Déverrouillé :     ☐            Pont MCP actif : 9223 ☐            Vite :1420 ☐
+Pont natif :       manifeste --check ☐   popup appairé ☐   sortie de l'hôte vide ☐
 
 #  Parcours                     Attendu                      Observé        OK
 1  …                            …                            …              ☐
@@ -164,15 +272,17 @@ Déverrouillé :     ☐            Pont MCP actif : 9223 ☐            Vite :1
 
 Accessibilité (axe-core) : écrans audités …, violations critiques/sérieuses : …
 Audit MCP : lignes attendues …, lignes observées …
+Fuites : sortie de l'hôte, console du worker, stockage local, ligne d'audit …
 Défauts trouvés : … (chacun devient un correctif + un test)
 ```
 
-## 7. Ce que cette recette ne couvre pas
+## 8. Ce que cette recette ne couvre pas
 
 | Sujet | Raison | Suivi |
 | ----- | ------ | ----- |
 | Déverrouillage biométrique | aucun fournisseur branché, l'UI masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
-| Pont Native Messaging | `vault_blind_autofill` répond `unavailable` | phase 6 |
-| Transport IPC Windows | named pipe non implémenté | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
+| Cérémonie WebAuthn servie par le coffre | le shim intercepte, mais le daemon n'a pas d'authentificateur : `handled: false` et repli navigateur | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Remplissage piloté par un agent via le pont natif | le pont ne sert que les remplissages initiés par l'extension (`vaultExtensionFill`) | [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Transport IPC et enregistrement Windows | named pipe non implémenté, manifeste stocké dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
 | Sync Supabase, sauvegardes, santé du coffre | non implémentés | [fonctionalites.md](./fonctionalites.md) |
-| Packaging et mise à jour | hors périmètre de la phase 5 | phase ultérieure |
+| Packaging et mise à jour | hors périmètre des phases 5 et 6 | phase ultérieure |

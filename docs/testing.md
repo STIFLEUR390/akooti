@@ -11,8 +11,8 @@ recette manuelle dans le binaire réel est dans
 
 | Niveau | Ce qu'il prouve | Outils | Exécution |
 | ------ | --------------- | ------ | --------- |
-| **Unitaire / intégration Rust** | Le métier est correct et étanche : crypto, DAO, jetons, audit, importateurs | `cargo test` (115 tests) | local + CI |
-| **Unitaire TypeScript** | Le formatage, les modèles partagés, le client IPC et le mode démo de l'UI | `bun test` (50 tests) | local + CI |
+| **Unitaire / intégration Rust** | Le métier est correct et étanche : crypto, DAO, jetons, audit, importateurs, pont natif | `cargo test` (142 tests) | local + CI |
+| **Unitaire TypeScript** | Le formatage, les modèles partagés, le client IPC, le mode démo de l'UI et l'extension (pont, DOM, WebAuthn) | `bun test` (128 tests) | local + CI |
 | **Recette manuelle pilotée** | L'application réelle se comporte comme annoncé, accessibilité comprise | pont MCP Tauri, `axe-core` | à chaque fin de phase |
 
 Le cœur métier s'exécute **sans Tauri** : `cargo test -p akooti-core` suffit.
@@ -83,6 +83,7 @@ Deux conséquences pratiques :
 | ------- | ------------ | ----------- |
 | Cadrage | longueur 4 octets LE, trame vide refusée, trame > 1 Mio refusée, flux tronqué | `src/framing.rs` |
 | Messages | sérialisation `Request`/`Response`, version de protocole, corps d'erreur | `src/protocol.rs` |
+| `vaultExtensionFill` | trame dorée (champs `camelCase`), `FillPayload` jamais affiché, version `2` | `src/protocol.rs` |
 | Socket | permission `0600`, chemin par défaut, dossier privé | `src/socket.rs` |
 | Client | connexion, aller-retour, erreur distante, reconnexion | `src/client.rs` |
 
@@ -99,8 +100,10 @@ Deux conséquences pratiques :
 
 | Contrat | Vérification | Emplacement |
 | ------- | ------------ | ----------- |
-| Routage des modes | `help`/`version` sans fenêtre, `mcp` sans jeton → code 2, `native-host` → code 3 | `src/cli.rs` |
-| Modes headless | aucun webview démarré, sortie propre | `src/headless.rs` |
+| Routage des modes | `help`/`version` sans fenêtre, `mcp` sans jeton → code 2, `native-register` (options, `--check`) | `src/cli.rs` |
+| Modes headless | aucun webview démarré, sortie propre, code de sortie par mode | `src/headless.rs` |
+| Pont natif | pompe stdin/stdout ↔ socket : trames recopiées telles quelles, plafond 1 Mio, arrêt propre sur EOF ou port fermé | `src/native_host.rs` |
+| Manifestes | chemin par navigateur et par OS, `allowed_origins` vs `allowed_extensions`, id validé avant écriture, install idempotent, réparation, désinstallation | `src/native_register.rs` |
 | Masquage `vault_exec` | valeur brute, URL-encodée et JSON remplacées par `***` dans `stdout`/`stderr` | `src/daemon/exec.rs` |
 | Injection CDP | origine imposée, sélecteurs, statuts `filled` / `partial` / `failed`, pont absent → `unavailable` | `src/daemon/inject.rs` |
 | Daemon | handshake et capacités annoncées, correspondance erreur → code stable | `src/daemon/mod.rs` |
@@ -116,6 +119,12 @@ Deux conséquences pratiques :
 | Mode démo | jeu de données cohérent pour le développement navigateur | `apps/desktop/src/lib/mock.test.ts` |
 | Formatage | dates, tailles, libellés, cas limites | `apps/desktop/src/lib/format.test.ts` |
 | Force des mots de passe | bornes, classes, estimation d'entropie | `apps/desktop/src/lib/strength.test.ts` |
+| Contrat de l'extension | trames dorées face à Rust, `FillPayload`, codes d'erreur stables | `apps/extension/lib/protocol.test.ts` |
+| Bus interne | repli en `daemon_unavailable` quand le worker a disparu, refus d'une réponse malformée | `apps/extension/lib/runtime.test.ts` |
+| Pont natif (côté extension) | handshake avant la première requête, sérialisation, erreur collante sur version, expiration, reconnexion | `apps/extension/lib/native/bridge.test.ts` |
+| Appairage | forme du jeton, masquage, refus d'un jeton malformé avant écriture, dissociation | `apps/extension/lib/native/pairing.test.ts` |
+| Heuristiques DOM | classification des formulaires, rôles des champs, sélecteurs stables et échappés, danse d'événements de remplissage | `apps/extension/lib/dom/*.test.ts` |
+| WebAuthn | garde de `rpId`, nonce, corrélation, expiration sans réponse, reconstruction d'un credential | `apps/extension/lib/webauthn/*.test.ts` |
 
 ## 5. Règles applicables aux fixtures
 
@@ -158,6 +167,7 @@ liste.
 | Interface graphique réelle | nécessite un webview et un compositeur | [desktop-tests.md](./desktop-tests.md), pont MCP |
 | Accessibilité | audit `axe-core` sur un écran rendu | [desktop-tests.md](./desktop-tests.md) |
 | Purge effective du presse-papiers | dépend du gestionnaire de presse-papiers de l'OS | recette manuelle |
-| Pont Native Messaging / extension | livré en phase 6 | `vault_blind_autofill` répond `unavailable` |
+| Navigateur réel (Chrome, Firefox) | demande un navigateur piloté et une extension installée | recette manuelle ([desktop-tests.md](./desktop-tests.md) §6) |
+| Cérémonie WebAuthn servie par le coffre | aucun authenticateur côté daemon ([ADR 0008](./adr/0008-extension-native-messaging.md)) | tâche 6.4 |
 | Biométrie | aucun fournisseur branché ([ADR 0005](./adr/0005-biometrie-deverrouillage.md)) | recette manuelle |
 | Sync Supabase et sauvegardes | non implémentés | conception seulement ([schema.md](./schema.md)) |

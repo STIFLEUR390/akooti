@@ -1,10 +1,10 @@
 # Architecture
 
 Akooti est un coffre-fort de mots de passe _local-first_ : un binaire Rust
-unique, une base SQLCipher locale, et — à terme — une extension navigateur. Ce
-document décrit les processus, les frontières de confiance, les flux de données
-et la carte du code. Le périmètre fonctionnel est dans
-[fonctionalites.md](./fonctionalites.md), les règles inviolables dans
+unique, une base SQLCipher locale, et une extension navigateur qui parle au
+daemon par Native Messaging. Ce document décrit les processus, les frontières de
+confiance, les flux de données et la carte du code. Le périmètre fonctionnel est
+dans [fonctionalites.md](./fonctionalites.md), les règles inviolables dans
 [regles.md](./regles.md).
 
 ## 1. Vue d'ensemble
@@ -15,12 +15,13 @@ Un seul binaire `akooti`, plusieurs modes ([ADR 0001](./adr/0001-monorepo-rust-b
 | ----------------------------- | ---------------------------------------------------------------------- | ------ |
 | `akooti`                      | Interface graphique Tauri + icône de notification + **daemon** local    | ✅     |
 | `akooti mcp --token <jeton>`  | Serveur MCP sur stdio, lancé par l'agent (Claude Code, Codex, Cursor…) | ✅     |
-| `akooti native-host`          | Pont Native Messaging pour l'extension navigateur                      | 🧭 phase 6 |
+| `akooti native-host`          | Pont Native Messaging pour l'extension navigateur                      | ✅     |
+| `akooti native-register`      | Installe les manifestes Native Messaging par navigateur                | ✅     |
 | `akooti help` / `version`     | Aide et version, aucun démarrage                                       | ✅     |
 
 Principe directeur : **un seul processus détient la clé maître**. L'interface,
-les sous-processus MCP et (demain) le pont navigateur n'y ont pas accès ; ils
-demandent au daemon d'agir, et le daemon décide.
+les sous-processus MCP et le pont navigateur n'y ont pas accès ; ils demandent au
+daemon d'agir, et le daemon décide.
 
 ```text
 +------------------------------------------------------------------------------------+
@@ -30,13 +31,13 @@ demandent au daemon d'agir, et le daemon décide.
 |    React + TypeScript          Claude Code, Codex, Cursor…      Chrome/Edge/FF     |
 +---------+----------------------------+-------------------------------+-------------+
           | Tauri IPC                  | JSON-RPC sur stdio            | Native Msg
-          | (capabilities)             | (`akooti mcp --token …`)      | (phase 6)
+          | (capabilities)             | (`akooti mcp --token …`)      | (`org.akooti.host`)
           v                            v                               v
 +---------+----------------------------+-------------------------------+-------------+
 |                        BINAIRE UNIQUE RUST (`akooti`)                              |
 |                                                                                    |
 |   [ Interface + tray ]  <--- IPC local (socket Unix 0600) --->  [ Serveur MCP ]    |
-|            |                        version 1, 1 Mio max             (sans clé)    |
+|            |                        version 2, 1 Mio max             (sans clé)    |
 |            +------------------------------+-----------------------------+          |
 |                                           v                                        |
 |                        +------------------------------------+                      |
@@ -59,8 +60,8 @@ demandent au daemon d'agir, et le daemon décide.
 ```
 
 Ce qui **n'existe pas encore** : synchronisation Supabase, sauvegardes
-planifiées (S3 / Drive / local), audit de santé du coffre, passkeys, pont
-Native Messaging et transport IPC Windows. Ils sont décrits comme cible et
+planifiées (S3 / Drive / local), audit de santé du coffre, authenticateur
+WebAuthn côté daemon et transport IPC Windows. Ils sont décrits comme cible et
 marqués 🧭.
 
 ## 2. Processus et détention de la clé
@@ -69,7 +70,8 @@ marqués 🧭.
 | ------------------------- | -------------------------------- | -------------------------------- | ---------------------------- |
 | Binaire `akooti` (GUI)    | oui, tant que le coffre est ouvert | oui, via la fenêtre de révélation | oui                          |
 | Serveur MCP (stdout)      | **non**                          | **non** — il ne reçoit que des issues de remplissage | non  |
-| Pont Native Messaging     | **non** (même contrat que MCP)   | non                              | non                          |
+| Pont Native Messaging     | **non** (même contrat que MCP)   | **non** — il recopie des trames sans les désérialiser | non                          |
+| Extension navigateur      | non                              | reçoit les valeurs qu'elle injecte, sans les conserver | **non** — la capture de sélecteurs se colle à la main |
 | Navigateur cible (CDP)    | non                              | reçoit les valeurs dans le DOM   | —                            |
 | Processus enfant (`vault_exec`) | non                        | reçoit des variables d'environnement, jamais sur son stdout | — |
 
@@ -78,7 +80,10 @@ Conséquences directes :
 - un agent IA compromis ne peut pas extraire un mot de passe : il ne dispose que
   d'identifiants de métadonnées et de verbes d'action ;
 - arrêter le binaire principal suffit à couper tout accès : le socket disparaît
-  et les jetons deviennent inutilisables (réponse `daemon_unavailable`).
+  et les jetons deviennent inutilisables (réponse `daemon_unavailable`) ;
+- seul le pont peut recevoir des valeurs, et seulement pour les remettre à une
+  page : `vaultExtensionFill` refuse toute connexion qui ne s'est pas annoncée
+  `native-host` ([ADR 0008](./adr/0008-extension-native-messaging.md)).
 
 ## 3. Cycle de vie du coffre
 
@@ -124,7 +129,8 @@ agent (itemId, origin, selectors?) -> daemon -> plan de remplissage (RAM)
 - Sélecteurs stockés sur l'entrée, surchargés par ceux de l'agent quand il en
   fournit (`selectors`).
 - Statuts : `filled`, `partial` (aucun sélecteur trouvé), `failed`,
-  `unavailable` (extension non branchée).
+  `unavailable` (côté agent : le pont natif ne lui ouvre pas ce verbe, voir
+  §4.5).
 
 ### 4.3 Compte éphémère (`vault_create_and_fill`)
 
@@ -149,12 +155,33 @@ Aucun shell n'est interposé : `argv[0]` est le programme. Une variable n'est
 développée que si l'agent demande explicitement un shell. Il n'existe
 volontairement **pas** de `AKOOTI_TOTP`.
 
-### 4.5 Audit
+### 4.5 Remplissage piloté par l'extension (`vaultExtensionFill`)
+
+```text
+popup -> service worker -> pont natif -> socket -> daemon
+   -> jeton, portée `blind_fill`, dossiers autorisés, origine de l'onglet vérifiée
+   -> `FillPayload` (RAM, `Zeroizing`) : username, password, totp, sélecteurs
+   -> service worker -> content script (ISOLATED) -> page
+   -> compte-rendu : champs remplis, soumission — aucune valeur
+```
+
+- Le verbe n'accepte que le client `native-host` ; une connexion `mcp` reçoit
+  `forbidden` et une ligne `access_denied`, avant tout déchiffrement.
+- `target` distingue `fill` (injection dans la page) et `clipboard` (copie
+  éphémère, effacée après 30 s côté content script) ; il n'apparaît dans l'audit
+  que comme un mot.
+- Une origine non concordante est refusée comme pour `vault_cdp_autofill` :
+  l'extension ne peut pas vider un coffre page par page.
+- Le serveur MCP traduit une réponse `extensionFill` en erreur d'outil
+  `forbidden` : le contrat de l'agent ne sait pas lire une valeur
+  ([ADR 0008](./adr/0008-extension-native-messaging.md)).
+
+### 4.6 Audit
 
 Toutes les actions IA passent par `mcp_audit_logs` : `vault_search`,
-`cdp_autofill`, `create_and_fill`, `exec_env`, et `access_denied` pour les
-refus. Une ligne ne contient jamais de valeur secrète, seulement une origine, un
-identifiant technique et un diagnostic court.
+`cdp_autofill`, `blind_autofill`, `create_and_fill`, `exec_env`, et
+`access_denied` pour les refus. Une ligne ne contient jamais de valeur secrète,
+seulement une origine, un identifiant technique et un diagnostic court.
 
 ## 5. Contrats techniques
 
@@ -163,11 +190,13 @@ identifiant technique et un diagnostic court.
 | Transport IPC      | socket Unix, permission `0600`, dossier réservé à l'utilisateur ([ADR 0006](./adr/0006-transport-ipc-socket-unix.md)) |
 | Emplacement        | `AKOOTI_SOCKET` sinon `$XDG_RUNTIME_DIR/akooti/daemon.sock`                              |
 | Cadrage            | JSON préfixé par une longueur de 4 octets (LE), plafond **1 Mio** par trame             |
-| Version de protocole | `1` ; incrémentée dès qu'un champ change de sens                                       |
-| Erreurs            | codes stables : `forbidden`, `locked`, `not_found`, `invalid_credentials`, `invalid_input`, `internal`, `daemon_unavailable` |
+| Version de protocole | `2` ; incrémentée dès qu'un champ change de sens, `camelCase` sur tous les champs      |
+| Erreurs            | codes stables : `forbidden`, `locked`, `not_found`, `invalid_credentials`, `invalid_input`, `internal`, `daemon_unavailable`, `version_mismatch` |
 | Jetons MCP         | `ak_mcp_` + 64 caractères hexadécimaux ; stockés en SHA-256, comparés en temps constant  |
 | Portées            | `read_metadata`, `blind_fill`, `create_and_fill`, `exec_env`                             |
 | Secrets en Rust    | `zeroize::Zeroizing` pour toute clé, dérivée ou valeur déchiffrée                        |
+| Pont navigateur    | hôte `org.akooti.host`, stdin/stdout en trames Native Messaging, **aucun désérialisation** ; manifeste par navigateur écrit par `akooti native-register` ([ADR 0008](./adr/0008-extension-native-messaging.md)) |
+| Extension          | `@wxt-dev/module-react`, service worker seul client du pont, contenu ISOLATED pour écrire dans la page, shim WebAuthn en monde MAIN injecté avec un nonce |
 
 ## 6. Carte du code
 
@@ -195,7 +224,9 @@ akooti/
 ├── src-tauri/                  # shell desktop : CLI, tray, daemon, commandes IPC
 │   └── src/
 │       ├── cli.rs                  routage des modes avant toute fenêtre
-│       ├── headless.rs             modes `mcp` et `native-host`
+│       ├── headless.rs             modes `mcp`, `native-host` et `native-register`
+│       ├── native_host.rs          pompe de trames stdin/stdout <-> socket du daemon
+│       ├── native_register.rs      manifestes Native Messaging par navigateur et par OS
 │       ├── vault_runtime.rs        `Arc<VaultRuntime>`, verrou auto 15 min
 │       ├── daemon/                 serveur IPC + inject.rs (CDP) + exec.rs (masquage)
 │       └── commands/               surface IPC typée (vault, items, folders, generator,
@@ -203,14 +234,27 @@ akooti/
 ├── apps/
 │   ├── desktop/                # React + Vite : unlock, coffre, générateur, import,
 │   │                           # routage, page « Accès IA »
-│   └── extension/              # WXT : service worker seul (phase 6)
+│   └── extension/              # WXT : un source, Chrome/Edge/Brave (MV3) et Firefox (MV2)
+│       ├── wxt.config.ts           manifeste, permissions, ressource web-accessible
+│       ├── entrypoints/
+│       │   ├── background.ts       service worker : seul client du pont natif
+│       │   ├── content.ts          ISOLATED : détection, remplissage, capture, copie
+│       │   ├── webauthn.content.ts ISOLATED : injecte le shim et relaie les cérémonies
+│       │   ├── webauthn-main.ts    script non listé, monde MAIN : remplace `navigator.credentials`
+│       │   └── popup/              React : appairage, recherche, remplissage, copie
+│       └── lib/
+│           ├── protocol.ts         miroir TypeScript du protocole du daemon
+│           ├── runtime.ts          client du bus interne (popup/content -> worker)
+│           ├── native/bridge.ts    port Native Messaging, sérialisé, erreurs typées
+│           ├── native/pairing.ts   jeton dans `storage.local`, forme et masquage
+│           ├── dom/                heuristiques et injection, pures donc testables
+│           └── webauthn/           relais nonce + reconstruction d'un credential
 └── packages/shared/            # types et protocoles TypeScript partagés
 ```
 
 Les modules suivants sont **ciblés mais absents** et ne doivent pas être
-supposés présents : `health.rs`, `passkeys.rs`, `sync_supabase.rs`, `backup/`,
-`content.ts` / `webauthn.content.ts` de l'extension. Voir
-[fonctionalites.md](./fonctionalites.md) pour leur statut.
+supposés présents : `health.rs`, `passkeys.rs`, `sync_supabase.rs`, `backup/`.
+Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 
 ## 7. Décisions structurantes
 
@@ -223,14 +267,17 @@ supposés présents : `health.rs`, `passkeys.rs`, `sync_supabase.rs`, `backup/`,
 | [0005](./adr/0005-biometrie-deverrouillage.md)          | Biométrie : trait d'union présent, fournisseur non branché  |
 | [0006](./adr/0006-transport-ipc-socket-unix.md)         | Socket Unix natif, named pipe Windows différé               |
 | [0007](./adr/0007-fills-et-secrets-totp-courts.md)      | Remplissage d'un compte neuf, secrets TOTP courts, audit fidèle |
+| [0008](./adr/0008-extension-native-messaging.md)        | Pont Native Messaging, `vaultExtensionFill`, shim WebAuthn   |
 
 ## 8. Limites connues
 
 | Limite                                                        | Référence                          |
 | ------------------------------------------------------------- | ---------------------------------- |
-| `vault_blind_autofill` répond `unavailable` : l'extension n'est pas branchée | phase 6              |
-| Pas de transport IPC Windows (named pipe)                     | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
+| `vault_blind_autofill` (côté agent) répond `unavailable` : le verbe qui libère des valeurs n'est ouvert qu'au pont natif | [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| L'authentificateur WebAuthn côté daemon n'existe pas : le shim intercepte mais retombe toujours sur le navigateur (`handled: false`) | tâche 6.4, [ADR 0008](./adr/0008-extension-native-messaging.md) |
+| Un credential reconstruit côté extension n'est pas une instance de `PublicKeyCredential` (objet compatible seulement) | `apps/extension/lib/webauthn/credential.ts` |
+| Pas de transport IPC Windows (named pipe) ni de manifeste Native Messaging dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
 | Aucun fournisseur biométrique branché ; l'interface masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
 | Les secrets TOTP de moins de 128 bits sont acceptés (services réels) | [ADR 0007](./adr/0007-fills-et-secrets-totp-courts.md) |
 | `SelectorOverride.submit: null` ne désactive pas la soumission (indistinguable d'« absent ») | `daemon/inject.rs` |
-| Synchronisation, sauvegardes, audit de santé, passkeys : non implémentés | phases ultérieures |
+| Synchronisation, sauvegardes, audit de santé : non implémentés | phases ultérieures |

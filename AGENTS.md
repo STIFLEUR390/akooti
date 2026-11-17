@@ -28,19 +28,24 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
 - `src-tauri` — crate/package name is **`akooti`** (dir `src-tauri`, lib `akooti_lib`,
   bin `akooti`), so `cargo test -p akooti` is the desktop shell and needs Tauri system deps.
   `lib.rs` routes CLI modes before any window (`cli.rs`), `headless.rs` runs `mcp` /
-  `native-host`, `vault_runtime.rs` owns the shared `Arc<VaultRuntime>` and 15-minute lock,
+  `native-host` / `native-register`, `native_host.rs` is the frame pump (stdin/stdout ↔
+  daemon socket, no decoding) and `native_register.rs` the per-browser manifests,
+  `vault_runtime.rs` owns the shared `Arc<VaultRuntime>` and 15-minute lock,
   `daemon/` is the IPC server (`inject.rs` = CDP fill, `exec.rs` = `vault_exec` masking),
   `commands/` is the typed IPC surface, `dto.rs`/`error.rs` the payloads and stable codes.
 - `apps/desktop` — React/Vite UI. `lib/ipc.ts` is the typed command bridge with an in-memory
   mock used outside Tauri; `hooks/`, `components/`, `pages/` cover unlock, vault, generator,
-  import, routing and the AI access page. `apps/extension` is WXT with only
-  `entrypoints/background.ts` (phase 6). `packages/shared` exports raw `.ts` (no build step)
-  as `@akooti/shared`, aliased in `apps/desktop/vite.config.ts` and `tsconfig.json`.
+  import, routing and the AI access page. `apps/extension` is WXT: service worker
+  (`entrypoints/background.ts`, the only bridge client), popup (React), content script,
+  `lib/dom` heuristics and a MAIN-world WebAuthn shim injected by an ISOLATED script.
+  `packages/shared` exports raw `.ts` (no build step) as `@akooti/shared`, aliased in
+  `apps/desktop/vite.config.ts` and `tsconfig.json`.
 - `docs/` is the reference and is now accurate, with per-claim statuses: ✅ implemented,
   🧭 planned, ⚠️ known limit. `docs/README.md` is the index, `docs/regles.md` the normative
   rules, `docs/architecture.md` processes/flows/contracts, `docs/testing.md` coverage,
   `docs/desktop-tests.md` the manual recipe, `docs/adr/` the decisions. Still design-only:
-  sync, backups, vault health, passkeys, extension content scripts, Native Messaging.
+  sync, backups, vault health, the Rust WebAuthn authenticator (the shim intercepts, then
+  falls back to the browser), and Windows (named pipe + registry manifest).
   Verify against `src/` before assuming; the code wins.
 
 ## Commands
@@ -82,8 +87,9 @@ cargo fmt --all --check         # safe without Tauri system deps
 - **stdout is the wire in `mcp` mode.** JSON-RPC owns stdout; every log goes to stderr
   (`tracing` is wired to stderr, and only `akooti version` prints to stdout). A
   `println!` in the headless path corrupts the protocol.
-- Exit codes of headless modes: `2` = `mcp` without a token, `3` = `native-host`
-  (phase 6 stub), `1` = startup/wire failure.
+- Exit codes of headless modes: `2` = `mcp` without a token, `3` = `native-register` on a
+  platform without manifests (Windows), `1` = startup/wire failure (including
+  `native-host` with no daemon, which still writes a `daemon_unavailable` frame).
 - **Schema:** `db.rs` embeds `migrations/001_init.sql` via `include_str!`, applies it once
   and stamps `PRAGMA user_version` (`CURRENT_SCHEMA_VERSION = 1`; a newer version is
   treated as corruption). Never edit that shipped migration — add a new file and bump the
@@ -154,5 +160,6 @@ Kaneo account: **DEV MASTER** `heroldtamko39@gmail.com`, user id
   `targetTaskId` = child, `relationType: "subtask"`.
 
 Phases are tracked as tasks: 0 foundations, 1 crypto/storage, 2 vault features,
-3 importers, 4 desktop UI, 5 AI bridge — all `done`; 6 extension + passkeys is next.
+3 importers, 4 desktop UI, 5 AI bridge — all `done`; 6 extension + passkeys is
+`in-review` except the Rust WebAuthn authenticator, still `to-do`.
 Update the task status/comment as part of each change.

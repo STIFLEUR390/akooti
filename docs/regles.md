@@ -117,7 +117,7 @@ document de recette ([desktop-tests.md](./desktop-tests.md),
 | 3     | Importateurs universels et hygiène post-import                                               | ✅     |
 | 4     | Application desktop Tauri v2 : interface du coffre, accessibilité                            | ✅     |
 | 5     | Pont IA : CLI multi-modes, daemon IPC, serveur MCP, jetons cloisonnés, audit, `SKILL.md`      | ✅     |
-| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                   | 🧭     |
+| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                   | ⚠️ livrée sans authenticateur WebAuthn (tâche 6.4) |
 | 7+    | Synchronisation Supabase E2EE, sauvegardes planifiées, santé du coffre                        | 🧭     |
 
 ---
@@ -127,13 +127,15 @@ document de recette ([desktop-tests.md](./desktop-tests.md),
 | Règle        | Comment elle est tenue aujourd'hui                                                                 |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | SEC-1, AI-3  | Tests d'étanchéité : `crates/akooti-core/tests/mcp_access_test.rs`, tests in-file de `akooti-mcp`, `src-tauri/src/daemon` |
+| SEC-2        | `src-tauri/src/native_host.rs` (pompe de trames, aucun désassemblage) et `apps/extension/lib` (une valeur ne remonte jamais vers la popup) |
 | SEC-3, SEC-4 | `Zeroizing` imposé en revue ; tests de verrouillage dans `tests/vault_flow.rs`                       |
 | SEC-5        | Aucun code réseau dans `akooti-core` : à vérifier en revue lors de l'ajout de la sync               |
-| SEC-6, ARCH-4 | `crates/akooti-ipc` : tests de cadrage, de plafond et de socket                                    |
+| SEC-6, ARCH-4 | `crates/akooti-ipc` : tests de cadrage, de plafond et de socket ; trames dorées côté TypeScript      |
 | SEC-7        | `crates/akooti-core/src/mcp/token.rs` (SHA-256, comparaison en temps constant, préfixe d'affichage) |
 | DATA-1..DATA-6 | Tests DAO : `tests/vault_flow.rs`, `tests/phase2_vault_test.rs`, `tests/routing_test.rs`          |
 | DATA-7       | `src/db.rs` : migration idempotente vérifiée par test                                               |
 | ARCH-1       | Absence de dépendance Tauri dans `crates/akooti-core/Cargo.toml` + `cargo test -p akooti-core` seul |
+| ARCH-2       | `vaultExtensionFill` refusé à toute connexion non `native-host`, et refus rejoué depuis `akooti-mcp` |
 | UX-*         | `bun test` (hooks et formatage) et audit `axe-core` documenté dans [desktop-tests.md](./desktop-tests.md) |
 | ARCH-7       | Revue + `cargo fmt` / ESLint / Prettier en CI                                                       |
 
