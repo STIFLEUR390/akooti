@@ -16,6 +16,7 @@ mod generator;
 mod header;
 mod importers;
 mod items;
+mod mcp;
 mod models;
 mod routing;
 mod session;
@@ -25,6 +26,7 @@ mod vault;
 mod vault_history;
 mod vault_items;
 mod vault_maintenance;
+mod vault_mcp;
 mod vault_routing;
 mod vault_totp;
 
@@ -39,6 +41,10 @@ pub use importers::{
     ImportFolder, ImportFormat, ImportIssue, ImportIssueKind, ImportItem, ImportOptions,
     ImportPreview, ImportReport, SecureDeleteReport,
 };
+pub use mcp::{
+    AuditStatus, IssuedMcpToken, McpAction, McpAuditEntry, McpPrincipal, McpScope, McpToken,
+    NewAuditEntry, NewMcpToken, TOKEN_PREFIX,
+};
 pub use models::{
     AGENTS_MCP_FOLDER_ID, CustomField, CustomFieldInput, DEV_LOCAL_FOLDER_ID, Folder, FolderDraft,
     ItemFilter, ItemMetadataDraft, ItemType, ItemUri, ItemUriInput, PERSONAL_FOLDER_ID,
@@ -49,6 +55,7 @@ pub use routing::{NewRoutingRule, RoutingPatternType, RoutingRule};
 pub use session::VaultSession;
 pub use totp::{TotpAlgorithm, generate as generate_totp_code, verify as verify_totp_code};
 pub use vault::Vault;
+pub use vault_mcp::{EphemeralAccount, EphemeralAccountDraft, McpFillPlan};
 
 /// Current version of the core crate, as declared in `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
