@@ -31,6 +31,9 @@ coverage/
 .wxt/
 .stats.html
 
+# CodeGraph index (local code intelligence cache)
+.codegraph/
+
 # Tauri
 src-tauri/gen/
 src-tauri/target/
