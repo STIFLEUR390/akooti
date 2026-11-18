@@ -20,7 +20,7 @@ import type {
   SelectorSet,
 } from "@akooti/shared";
 
-import { IpcError } from "./ipc";
+import { IpcError } from "./ipc-error";
 import { estimatePassword } from "./strength";
 import type {
   AkootiApi,

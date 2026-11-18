@@ -26,6 +26,7 @@ import type {
   VaultItemType,
 } from "@akooti/shared";
 
+import { IpcError } from "./ipc-error";
 import { createMockApi } from "./mock";
 
 /** Vault state reported by `vault_status`. */
@@ -490,20 +491,7 @@ export interface AkootiApi {
 }
 
 /** Structured backend error: stable `code`, safe `message`. */
-export class IpcError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "IpcError";
-    this.code = code;
-  }
-
-  /** True when the vault locked itself mid-action. */
-  get isLocked(): boolean {
-    return this.code === "locked";
-  }
-}
+export { IpcError };
 
 /** Coerces any thrown value into an {@link IpcError}. */
 export function toIpcError(error: unknown): IpcError {
