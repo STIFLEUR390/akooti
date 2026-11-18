@@ -140,9 +140,13 @@ export function Sidebar({
                 </span>
                 <span className="nav-item__label">
                   <span className="nav-item__name">{folder.name}</span>
-                  <span className="nav-item__tag" title="Dossier protégé">
+                  <span
+                    className="nav-item__tag"
+                    role="img"
+                    aria-label="Dossier système"
+                    title="Dossier protégé"
+                  >
                     <Icon name="lock" size={11} />
-                    <span className="nav-item__tag-text">système</span>
                   </span>
                 </span>
                 {sharedFolderIds.has(folder.id) ? (

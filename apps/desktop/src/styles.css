@@ -356,23 +356,13 @@ a {
 .nav-item__tag {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   flex: 0 0 auto;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 999px;
   border: 1px solid var(--border);
   font-size: 0.58rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   white-space: nowrap;
   color: var(--text-faint);
-}
-
-/* The word is redundant with the colour + lock glyph on narrow sidebars. */
-@media (max-width: 1180px) {
-  .nav-item__tag-text {
-    display: none;
-  }
 }
 
 .nav-item__shared {
