@@ -2,8 +2,8 @@
 
 Akooti is a local-first password vault. One Rust binary (`akooti`) ships the Tauri
 desktop app, the local daemon that holds the master key, the headless MCP server and
-(later) the browser bridge. Bun workspaces host the React UI, the WXT extension and
-shared TS types.
+the browser bridge (Native Messaging). Bun workspaces host the React UI, the WXT
+extension and shared TS types.
 
 ## Layout and current state
 
@@ -13,19 +13,13 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   TOTP, routing, importers, session, MCP tokens and audit. **It must never import Tauri,
   WebView or React** (keeps it unit-testable and portable).
   - `importers/`: parsers normalize untrusted files into `ImportBundle`; only
-    `importers/pipeline.rs` opens the SQLCipher transaction. `import_file` erases the
-    source file only after commit and reports cleanup failure without rolling back.
-  - `mcp/`: token issue/hash (SHA-256, constant-time compare), store, audit.
-    `vault_mcp.rs` holds the scoped operations. Expired agent accounts are purged by
-    `items/maintenance.rs`, driven by `VaultRuntime::run_maintenance` on the UI loop —
-    not by a timer.
-  - `health.rs`: offline zxcvbn scoring, reuse (HMAC-SHA256 under the master key) and
-    age. HIBP is split: `breach_targets` exposes the 5-character SHA-1 prefixes, the
-    shell fetches the range, `apply_breach_range` compares suffixes locally. No network.
-  - `sync.rs`: E2EE record codec (folder/item/passkey/routing_rule), LWW + tombstones,
-    envelope. `snapshot.rs`/`vault_snapshot.rs`: `.akooti` format, restore, plaintext
-    export after a master-password check. `backup.rs`: encrypted targets, retention,
-    run history. Still no network code here (SEC-5).
+    `importers/pipeline.rs` opens the SQLCipher transaction; the source is erased after commit.
+  - `mcp/`: token issue/hash (SHA-256, constant-time), store, audit. `vault_mcp.rs` holds the
+    scoped operations; expired agent accounts are purged by `VaultRuntime::run_maintenance`
+    on the UI loop, not by a timer.
+  - `health.rs` (zxcvbn, reuse, age; HIBP split into prefix here / range in the shell),
+    `sync.rs` (E2EE codec, LWW + tombstones), `snapshot.rs` (`.akooti`, restore, plaintext
+    export), `backup.rs` (encrypted targets, retention). **No network code here** (SEC-5).
 - `crates/akooti-ipc` — the local wire protocol: 4-byte LE length + JSON, 1 MiB cap,
   `Request`/`Response`, socket path (`AKOOTI_SOCKET`, else `$XDG_RUNTIME_DIR/akooti/daemon.sock`)
   and the blocking `DaemonClient`. Unix only; Windows named pipes deferred (ADR 0006).
@@ -44,26 +38,24 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   cache, `health:progress` events. `sync/` holds the Supabase REST + Realtime clients,
   `backup/` the local/S3 SigV4/Drive drivers and the hourly scheduler; `commands/sync.rs`,
   `commands/backup.rs`, `commands/export.rs` and `commands/updates.rs` are the IPC surface.
-  The updater is Ed25519-signed (`plugins.updater.pubkey`); the private key stays outside
-  the repo. Drive and the bridge have debug-only test overrides — never compiled in release.
-- `apps/desktop` — React/Vite UI. `lib/ipc.ts` is the typed command bridge with an in-memory
-  mock used outside Tauri; `hooks/`, `components/`, `pages/` cover unlock, vault, generator,
-  import, routing, the AI access page, the vault health dashboard, sync/backups and a
-  first-run onboarding guide (localStorage flag, reopenable from the sidebar).
-  `apps/extension` is WXT: service worker
-  (`entrypoints/background.ts`, the only bridge client), popup (React), content script,
-  `lib/dom` heuristics and a MAIN-world WebAuthn shim injected by an ISOLATED script.
-  `packages/shared` exports raw `.ts` (no build step) as `@akooti/shared`, aliased in
-  `apps/desktop/vite.config.ts` and `tsconfig.json`.
-- `docs/` is the reference and is now accurate, with per-claim statuses: ✅ implemented,
-  🧭 planned, ⚠️ known limit. `docs/README.md` is the index, `docs/regles.md` the normative
-  rules, `docs/architecture.md` processes/flows/contracts, `docs/testing.md` coverage,
-  `docs/desktop-tests.md` the manual recipe, `docs/adr/` the decisions. Still design-only:
-  the Rust WebAuthn authenticator (the shim intercepts, then
-  falls back to the browser), Windows (named pipe + registry manifest), macOS
-  notarization / Windows signing, and the Google Drive real-account recipe (the driver is
-  validated against the gfeh API v3 emulator). Version is 1.0.0; releases are tagged `vX.Y.Z`.
-  Verify against `src/` before assuming; the code wins.
+  `tauri.conf.json` holds the strict CSP, the bundle metadata and the updater public key;
+  the private key stays outside the repo. Drive and the bridge have debug-only test
+  overrides — never compiled in release.
+- `apps/desktop` — React/Vite UI; `lib/ipc.ts` is the typed bridge with a mock used outside
+  Tauri; `pages/` = unlock, vault, import, routing, AI access, health, sync/backups; the
+  first-run guide is keyed by `akooti.onboarding.seen`. `apps/extension` is WXT (service
+  worker = only bridge client, popup, content scripts, MAIN-world WebAuthn shim).
+  `packages/shared` exports raw `.ts` (no build) as `@akooti/shared`, aliased in desktop
+  `vite.config.ts` / `tsconfig.json`.
+- `supabase/setup.sql` is what the **user** runs in their own Supabase project (tables,
+  RLS, Realtime) — not a SQLCipher migration. `scripts/e2e/app.e2e.mjs` drives the real
+  app through the debug bridge.
+- `docs/` is the reference, with per-claim statuses (✅ implemented / 🧭 planned / ⚠️ limit):
+  `README.md` index, `regles.md` normative rules, `architecture.md` flows, `schema.md`,
+  `testing.md`, `desktop-tests.md` recipes, `guides/` user guides, `threat-model.md` +
+  `security-review.md`, `release.md`, `adr/`. Design-only: Windows (named pipe + registry),
+  macOS notarization / Windows signing, real Google Drive recipe (validated on the gfeh API
+  v3 emulator). Version 1.0.0; tags `vX.Y.Z`. Verify against `src/` — the code wins.
 
 ## Commands
 
@@ -77,8 +69,6 @@ bun run lint                    # ESLint flat config, ignores src-tauri/**
 bun run format:check            # Prettier; ignores docs/ and bun.lock
 bun run typecheck               # wxt prepare (extension), then tsc per package
 bun test                        # bun:test, run from the repo root
-bun scripts/e2e/app.e2e.mjs      # E2E on the real app (needs a running debug build)
-bun run tauri build              # bundles; TAURI_SIGNING_PRIVATE_KEY signs updater artifacts
 bun test packages/shared/src/models.test.ts          # one TS suite
 cargo test -p akooti-core --locked                   # fast core feedback
 cargo test -p akooti-core --test import_pipeline_test  # one integration suite
@@ -100,6 +90,25 @@ cargo fmt --all --check         # safe without Tauri system deps
   Rust coverage lives in `crates/akooti-core/tests/`; share helpers via
   `tests/common/mod.rs`, use `tempfile` vaults, keep fixtures anonymized.
 - `apps/desktop`'s `build` runs `tsc --noEmit` first, so `bun run build` typechecks it.
+- E2E: launch the app on a throwaway profile, then run the bridge runner. It creates the
+  vault and covers create/lock/item/health/backup/token; failures write
+  `artifacts/e2e/` (gitignored).
+
+  ```bash
+  XDG_DATA_HOME=/tmp/akooti-e2e bun run tauri dev &
+  bun scripts/e2e/app.e2e.mjs
+  ```
+
+- Bundles: `bun run tauri build --bundles deb` (or `appimage`/`all`); updater artifacts need
+  the signing key. Full matrix and signing in `docs/release.md` (Fedora needs a pkg-config
+  shim for appindicator — documented there).
+
+  ```bash
+  TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/akooti.key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+    bun run tauri build --bundles deb
+  ```
+
+- CI: `ci.yml` on PR, `e2e.yml` nightly (Xvfb), `release.yml` on tag `v*`.
 
 ## Things that bite
 
@@ -109,24 +118,32 @@ cargo fmt --all --check         # safe without Tauri system deps
 - Exit codes of headless modes: `2` = `mcp` without a token, `3` = `native-register` on a
   platform without manifests (Windows), `1` = startup/wire failure (including
   `native-host` with no daemon, which still writes a `daemon_unavailable` frame).
-- **Schema:** `db.rs` embeds `migrations/001_init.sql` via `include_str!`, applies it once
-  and stamps `PRAGMA user_version` (`CURRENT_SCHEMA_VERSION = 1`; a newer version is
-  treated as corruption). Never edit that shipped migration — add a new file and bump the
+- **Schema:** `db.rs` embeds `migrations/001_init.sql` and `002_sync_backup.sql` via
+  `include_str!` and stamps `PRAGMA user_version` (`CURRENT_SCHEMA_VERSION = 2`; a newer
+  version is corruption). Never edit a shipped migration — add `00N_*.sql` and bump the
   constant.
 - The real vault lives in `app_data_dir` (`~/.local/share/com.akooti.desktop` on Linux:
   `vault.meta` + `vault.db`). Never point builds, tests or scripts at it; tests use
   `tempfile` directories.
 - `tauri-plugin-mcp-bridge` is registered only under `#[cfg(debug_assertions)]`, binds
   `127.0.0.1:9223`, and needs `withGlobalTauri: true` plus the `mcp-bridge:default`
-  capability. After `bun run tauri dev`, connect with `driver_session`; DOM/screenshot/IPC
-  tools target window `main`. `curl` on that port returns `000` even when healthy.
+  capability. Its WS protocol is `{id, command, args}` — `scripts/e2e/app.e2e.mjs` speaks
+  it. `invoke_tauri` only proxies a whitelist: call app commands with
+  `window.__TAURI__.core.invoke(…)` inside `execute_js` (promises are awaited). `curl` on
+  that port returns `000` even when healthy.
 - Vite is pinned to `:1420` with `strictPort`; a stale dev server makes `tauri dev` fail.
   Don't start Vite separately — `beforeDevCommand` does it. `frontendDist` is relative to
   `src-tauri/` (`../apps/desktop/dist`).
 - `.wxt/`, `apps/desktop/dist/`, `src-tauri/gen/` are generated: never edit. Extension
   types need `wxt prepare` (the `typecheck` script runs it).
-- `.env.example` documents `AKOOTI_LOG`, `AKOOTI_SUPABASE_*`, `VITE_AKOOTI_ENV`. Only Vite
-  auto-loads `VITE_*`; no Rust code reads the Supabase values yet.
+- `.env.example`: only Vite auto-loads `VITE_*`. `AKOOTI_SUPABASE_*` are **not read** (sync
+  is configured in the UI); `AKOOTI_GDRIVE_API_BASE` / `AKOOTI_GDRIVE_STATIC_TOKEN` are
+  debug-only overrides for the Drive emulator, compiled out of release.
+- Supabase, S3 and Drive tests need real services (or the external `gfeh-drive` emulator);
+  their suites are offline. `supabase/setup.sql` is applied once per project — until then
+  `sync_now` answers `sync_schema`.
+- The CSP is strict on purpose: adding a remote script/style host means editing
+  `app.security.csp` (and is a security-review trigger, not a config tweak).
 
 ## Local test vault and project MCP (gitignored secrets)
 
@@ -141,7 +158,8 @@ values into tracked files, docs, tickets or PRs — `*.local.txt` and `opencode.
   revoked token → `invalid_credentials` (reissue in **Accès IA** and realign both files).
 - Rebuild (`cargo build -p akooti`) after Rust changes; the MCP server is a thin client of
   the running daemon, so the debug binary and the app must come from the same build.
-- Recette and expected outputs: `docs/desktop-tests.md`.
+- `TEST-VAULT.local.txt` §2.1 (Supabase test project, backup targets) and §3.5 (recipes
+  actually run) are the local source of truth; general recipes in `docs/desktop-tests.md`.
 
 ## Style
 
@@ -150,8 +168,8 @@ values into tracked files, docs, tickets or PRs — `*.local.txt` and `opencode.
 - TypeScript: strict + `noUncheckedIndexedAccess` + `verbatimModuleSyntax`; ESLint enforces
   `import type`. Two spaces, `PascalCase` components, 100 columns.
 - Conventional Commits in English (`fix(mcp): …`); branches `feat/`, `fix/`, `chore/`,
-  `docs/`, `refactor/`, `test/`. PR template asks for the security checklist and the Kaneo
-  task link. Docs and README are French; code, comments, commits are English.
+  `docs/`, `refactor/`, `test/`. Process and security checklist: `CONTRIBUTING.md`.
+  Docs and README are French; code, comments, commits are English.
 
 ## Security invariants (see `docs/regles.md`)
 
@@ -164,6 +182,10 @@ values into tracked files, docs, tickets or PRs — `*.local.txt` and `opencode.
   custom field — no TOTP, no master password — and masks those values in stdout/stderr.
 - Routing may only **add** `Dev Local` membership via `item_folders`, never remove a folder.
 - MCP tokens, audit logs and backup config stay local: never synced or exported.
+- Sync and backup credentials (Supabase tokens, S3 secret, Drive refresh token) are
+  encrypted with the master key and never returned to the UI.
+- The updater private key never enters the repo; changing `plugins.updater.pubkey` breaks
+  updates for already-installed clients.
 - Local secrets live in `.env.local` or the gitignored files above, never in tracked files.
   Report vulnerabilities privately via GitHub Security Advisories.
 
@@ -178,6 +200,7 @@ Kaneo account: **DEV MASTER** `heroldtamko39@gmail.com`, user id
 - Subtasks use `create_task_relation` with `sourceTaskId` = parent,
   `targetTaskId` = child, `relationType: "subtask"`.
 
-Phases are tracked as tasks: 0 foundations, 1 crypto/storage, 2 vault features,
-3 importers, 4 desktop UI, 5 AI bridge, 6 extension + passkeys — all `done`.
-Update the task status/comment as part of each change.
+Phases 0–9 are `done` (foundations → extension → health → sync/backups → release 1.0.0).
+Open follow-ups are GitHub issues #74–#78, mirrored in Kaneo To Do: macOS notarization /
+Windows signing, real Google Drive recipe, OS session lock, two-device sync, updater
+end-to-end. Update the task status/comment as part of each change.
