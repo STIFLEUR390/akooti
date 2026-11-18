@@ -22,8 +22,9 @@ jobs:
             args: "--target aarch64-apple-darwin"
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
-          - platform: windows-latest
-            args: ""
+          # Windows is deferred (ADR 0006): akooti-ipc only speaks the Unix
+          # socket, so the bundle cannot build until named pipes plus OpenSSL
+          # for SQLCipher land.
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 90
     steps:
@@ -41,18 +42,6 @@ jobs:
             libssl-dev \
             build-essential \
             curl wget file pkg-config
-
-      # SQLCipher has no system crypto provider on Windows: libsqlite3-sys
-      # links OpenSSL explicitly. Static libs with the dynamic CRT match Rust's
-      # -MD and keep libcrypto out of the bundle's runtime dependencies.
-      - name: Windows OpenSSL for SQLCipher
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          vcpkg install openssl:x64-windows-static-md
-          $prefix = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
-          "OPENSSL_LIB_DIR=$prefix\lib" >> $env:GITHUB_ENV
-          "OPENSSL_INCLUDE_DIR=$prefix\include" >> $env:GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
         with:
