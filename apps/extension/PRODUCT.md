@@ -23,7 +23,7 @@ Success means a login happens on the page — by hand or by an agent — and the
 
 ## Positioning
 
-The only password-manager popup whose job is to *not* display secrets: fill is blind, copy is ephemeral (cleared after 30 s), the popup sees a report (`fieldsFilled`, `submitted`) or a field name and nothing else. The browser side is deliberately thin — no HTTP, no port, no local copy of the vault: Native Messaging is the only route to the daemon, and the native host relays frames without decoding them.
+The only password-manager popup whose job is to _not_ display secrets: fill is blind, copy is ephemeral (cleared after 30 s), the popup sees a report (`fieldsFilled`, `submitted`) or a field name and nothing else. The browser side is deliberately thin — no HTTP, no port, no local copy of the vault: Native Messaging is the only route to the daemon, and the native host relays frames without decoding them.
 
 ## Operating Context
 
