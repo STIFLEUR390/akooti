@@ -1537,6 +1537,60 @@ a {
   color: var(--danger, #f87171);
 }
 
+/* ---------------------------------------------------------------- health --- */
+
+.card progress {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.health__row {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+.health__row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.health__title {
+  font-weight: 500;
+}
+
+.health__score {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.health__score--0,
+.health__score--1 {
+  color: var(--danger, #f87171);
+  border-color: color-mix(in srgb, var(--danger, #f87171) 40%, transparent);
+}
+
+.health__score--2 {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.health__score--3,
+.health__score--4 {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;

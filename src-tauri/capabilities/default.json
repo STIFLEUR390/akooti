@@ -9,6 +9,7 @@
     "mcp-bridge:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

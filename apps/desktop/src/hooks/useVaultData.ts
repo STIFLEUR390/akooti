@@ -14,7 +14,7 @@ import { toIpcError } from "../lib/ipc";
 import type { Notices } from "./useToasts";
 
 /** Top-level views of the unlocked application. */
-export type Screen = "vault" | "import" | "routing" | "mcp";
+export type Screen = "vault" | "import" | "routing" | "mcp" | "health" | "sync";
 
 /**
  * Loads and mutates the vault contents.

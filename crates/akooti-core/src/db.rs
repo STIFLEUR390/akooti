@@ -7,7 +7,8 @@ use crate::crypto::{EncryptedValue, KEY_LEN, KdfParams, SALT_LEN};
 use crate::error::VaultError;
 
 const MIGRATION_V1: &str = include_str!("../migrations/001_init.sql");
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const MIGRATION_V2: &str = include_str!("../migrations/002_sync_backup.sql");
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 pub(crate) struct VaultMeta {
     pub(crate) vault_id: String,
@@ -41,13 +42,21 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), VaultError> {
     if version > CURRENT_SCHEMA_VERSION {
         return Err(VaultError::CorruptVault);
     }
-    if version == 0 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V1)?;
-        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
-        transaction.commit()?;
+    if version < 1 {
+        apply(connection, MIGRATION_V1, 1)?;
+    }
+    if version < 2 {
+        apply(connection, MIGRATION_V2, 2)?;
     }
     ensure_system_folders(connection)?;
+    Ok(())
+}
+
+fn apply(connection: &mut Connection, migration: &str, version: i64) -> Result<(), VaultError> {
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(migration)?;
+    transaction.pragma_update(None, "user_version", version)?;
+    transaction.commit()?;
     Ok(())
 }
 

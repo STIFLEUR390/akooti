@@ -75,16 +75,19 @@ Le détail par fonction est dans [`docs/fonctionalites.md`](./docs/fonctionalite
 - ✅ **`vault_exec`** — secrets injectés dans la mémoire d'un processus enfant (`docker compose up`, scripts de test), avec masquage automatique dans `stdout` / `stderr`.
 - ✅ **Agent Skill embarqué** — `skills/akooti/SKILL.md` guide les agents sur l'usage sûr du MCP et de la CLI.
 
-### Sync, sauvegardes & santé — 🧭 cible
+### Santé du coffre
 
-- 🧭 **Sync temps réel Supabase (BYO)** — Zero-Knowledge, Last-Write-Wins, tombstones, un enregistrement chiffré par objet.
-- 🧭 **Sauvegardes programmées** — snapshots `.akooti` chiffrés vers dossier local / NAS, S3 (AWS, R2, MinIO, Wasabi) et Google Drive (OAuth2), avec rétention configurable.
-- 🧭 **Santé du coffre (offline)** — score `zxcvbn`, détection des réutilisations et de l'ancienneté.
-- 🧭 **Fuites sans fuite** — vérification HIBP par _k-Anonymity_ : seuls les 5 premiers caractères du SHA-1 quitteraient la machine.
+- ✅ **Audit local (offline)** — score `zxcvbn` par entrée (dictionnaires, dates, suites clavier, pseudo et titre comme entrées utilisateur), réutilisation entre comptes et ancienneté paramétrable, sans aucune requête réseau.
+- ✅ **Fuites sans fuite** — vérification HIBP par _k-Anonymity_ sur action explicite : seuls les 5 premiers caractères du SHA-1 quittent la machine, la comparaison des suffixes reste locale ; hors ligne, le résultat reste « inconnu ».
+- ✅ **Tableau de bord** — synthèse, filtres, accès direct à l'entrée, remédiation par le générateur et l'historique existants, export CSV sans secret.
 
-Aujourd'hui, le coffre local SQLCipher est la source de vérité et **rien ne quitte
-l'appareil** : ces fonctions sont conçues et schématisées
-([`docs/schema.md`](./docs/schema.md)) mais pas encore écrites.
+### Sync & sauvegardes
+
+- ✅ **Sync temps réel Supabase (BYO)** — guide de configuration : [`docs/guides/supabase.md`](./docs/guides/supabase.md) ; chaque folder, entrée, passkey et règle de routage est sérialisé puis chiffré en XChaCha20 côté client ; le serveur ne voit que `ciphertext`, `nonce` et des métadonnées techniques. RLS par utilisateur, Realtime avec reconnexion et resynchronisation.
+- ✅ **Conflits explicites** — LWW sur l'horodatage client, tombstones pour les suppressions, donc rejouer un lot est idempotent.
+- ✅ **Sauvegardes programmées** — guides : [`S3`](./docs/guides/s3.md), [`Google Drive`](./docs/guides/google-drive.md) ; instantanés `.akooti` (les fichiers du coffre, déjà chiffrés) vers dossier local / NAS, S3 compatible (AWS, R2, MinIO, Wasabi) ou Google Drive (refresh token), rétention et historique des exécutions.
+- ✅ **Réversibilité** — export d'urgence JSON en clair après confirmation du mot de passe maître, et restauration d'un instantané `.akooti` depuis l'écran de déverrouillage.
+- ⚠️ **Recette externe** — Supabase est vérifié de bout en bout sur un projet réel (push, pull, tombstone, Realtime, RLS) ; S3 et Google Drive restent couverts hors ligne (signature, conversions, parseurs) tant qu'ils ne sont pas testés sur un bucket / compte réels.
 
 ## Architecture
 
@@ -149,9 +152,9 @@ tout reste sur l'appareil.
 | Gestion des paquets | Bun 1.4+ (workspaces natifs, `bun.lock` commité)                                                     |
 | Base locale         | SQLCipher (via `rusqlite`) + migrations SQL versionnées                                              |
 | Cryptographie       | Argon2id (KDF), XChaCha20-Poly1305 (AEAD), `zeroize`, `OsRng`                                        |
-| Audit               | `zxcvbn` (offline) + HIBP _k-Anonymity_ — 🧭 cible                                                   |
-| Sync                | Supabase Realtime (WebSocket) + RLS stricte, payloads E2EE — 🧭 cible                                |
-| Sauvegardes         | Cron interne, local / S3 (S3-compatible) / Google Drive OAuth2 — 🧭 cible                            |
+| Audit               | `zxcvbn` (offline), réutilisation, ancienneté, HIBP _k-Anonymity_                                    |
+| Sync                | Supabase Realtime (WebSocket) + RLS stricte, payloads E2EE, LWW + tombstones                         |
+| Sauvegardes         | Planificateur interne (60 s de tick), local / S3 SigV4 / Google Drive OAuth2, rétention `.akooti`    |
 | MCP                 | SDK Rust `rmcp` (transport stdio)                                                                    |
 | Tests app Tauri     | [MCP Server Tauri](https://github.com/hypothesi/mcp-server-tauri) (plugin `tauri-plugin-mcp-bridge`) |
 
@@ -353,7 +356,8 @@ vivent dans un fichier local non versionné, jamais dans ce README.
 | **4 — Application desktop**      | Interface Tauri v2 : déverrouillage, coffre, générateur, import, routage, page « Accès IA » ; accessibilité `axe-core`                                                                              | ✅   |
 | **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                                          | ✅   |
 | **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, pont Native Messaging, `vaultExtensionFill`, popup (remplissage, copie, capture), shim WebAuthn `world: MAIN`, authentificateur côté coffre (ES256, `fmt: "none"`) | ✅   |
-| **7+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence, santé du coffre (zxcvbn, HIBP k-Anonymity)                                                                       | 🧭   |
+| **7 — Santé du coffre**          | Audit local `zxcvbn` (score, réutilisation, ancienneté), vérification HIBP _k-Anonymity_ sur action explicite, tableau de bord et export CSV                                                        | ✅   |
+| **8+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence                                                                                                                   | 🧭   |
 
 Le détail exécutable vit dans le projet Kaneo **AKO — Akooti** ; le périmètre
 fonctionnel avec les statuts est dans

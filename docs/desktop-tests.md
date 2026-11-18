@@ -319,7 +319,71 @@ navigateur :
 | 5 | Extension : protocole, bus interne, appairage, pont natif, heuristiques DOM, WebAuthn (options, relais, repli), distinction `context_lost` | `cd apps/extension && bun test lib` (98 tests) |
 | 6 | Cérémonie WebAuthn : credential ES256 vérifié par `p256`, compteur croissant, refus d'origine et de relying party, refus d'une connexion `mcp`, audit `passkey_use` sans credential | `cargo test -p akooti-core --test passkey_test` (8), `cargo test -p akooti --lib daemon` (19) |
 
-## 7. Grille à recopier pour une nouvelle phase
+## 7. Phase 7 — santé du coffre
+
+### 7.1 Preuves automatisées (2026-11-18)
+
+| Contrat | Commande | Résultat |
+| ------- | -------- | -------- |
+| Score zxcvbn persisté, réutilisation entre deux entrées, préfixe SHA-1 à 5 caractères majuscules, ancienneté calculée depuis `password_updated_at` | `cargo test -p akooti-core --test health_test` | 3 tests ✅ |
+| Rapport étanche : ni mot de passe ni digest dans les champs, y compris via `Debug` | même suite | ✅ |
+| Marquage puis effacement d'une fuite par comparaison de suffixes | même suite | ✅ |
+| Parseur HIBP (padding `:0` ignoré, lignes invalides, CRLF) et export CSV échappé | `cargo test -p akooti health` | 2 tests ✅ |
+| Parcours de l'interface en mode démo | `bun test` | 148 tests ✅ |
+
+### 7.2 Parcours manuel (observé le 2026-11-18, pont MCP Tauri)
+
+Coffre jetable `XDG_DATA_HOME=/tmp/opencode/akooti-data`, app pilotée par le
+pont MCP (port 9223) ; le dialogue d'enregistrement a été conduit via AT-SPI.
+
+| # | Parcours | Attendu |
+| - | -------- | ------- |
+| 1 | Déverrouiller, ouvrir « Santé » | Aucun rapport affiché, bouton « Analyser le coffre », **aucune** requête réseau — observé |
+| 2 | « Analyser le coffre » | Progression par lots (événement `health:progress` : phase locale 4/4), puis comptes analysés, score moyen, faibles / réutilisés / compromis / anciens — observé (4 comptes, moyenne 2,0, 2 faibles, 2 réutilisés) |
+| 3 | Changer « Ancienneté à surveiller » | Compteur et filtre « Anciens » recalculés sans nouvelle analyse, valeur conservée en `localStorage` — observé |
+| 4 | Filtrer « Réutilisés » / « Compromis », cliquer une ligne | Retour au coffre sur l'entrée sélectionnée ; « Secrets » permet de régénérer : `zxcvbn_score` remis à `NULL` et `is_compromised` à 0, re-analyse à 4/4 — observé |
+| 5 | « Vérifier les fuites (HIBP) », réseau actif | 4 comptes vérifiés, 2 compromis (`password123`), 0 inconnu ; seuls ces deux items passent `is_compromised` — observé, événements `breach` 1/3 → 3/3 |
+| 6 | Même bouton, réseau coupé | `unknown` = tous les comptes, aucun blocage, drapeaux précédents conservés — **non joué** (pas de coupure réseau) ; parseur et chemin d'échec couverts par les tests |
+| 7 | « Exporter le rapport » | Dialogue « Enregistrer », CSV sans mot de passe ni préfixe SHA-1 — observé (`/tmp/opencode/akooti-sante.csv`) |
+| 8 | Verrouiller pendant l'analyse | Erreur `locked` affichée, aucune valeur périmée à l'écran — **non joué** (analyse de 4 entrées trop courte) |
+
+## 8. Phase 8 — synchronisation, sauvegardes et réversibilité
+
+### 8.1 Preuves automatisées (2026-11-18)
+
+| Contrat | Commande | Résultat |
+| ------- | -------- | -------- |
+| Instantané `.akooti` écrit puis restauré dans un autre dossier, refus d'un fichier étranger, refus d'écrasement implicite | `cargo test -p akooti-core --test backup_test` | ✅ |
+| Export JSON refusé sans le mot de passe maître, puis écrit sans jeton MCP ni clé de passkey | même suite | ✅ |
+| Cible locale : configuration chiffrée jamais renvoyée, planification due, historique, rétention par époque | même suite | ✅ |
+| Codec : charge utile opaque, application entre deux appareils partageant la clé, LWW plus ancien ignoré, tombstones propagées, ligne déplacée refusée (AAD) | `cargo test -p akooti-core --test sync_test` | ✅ |
+| Conversion epoch ↔ ISO-8601, curseur encodé, page de delta, refus d'un login rejeté, URL Realtime `wss`, signature SigV4 stable, rétention | `cargo test -p akooti --lib sync`, `--lib backup` | ✅ |
+
+### 8.2 Parcours manuel (observé le 2026-11-18 sur un projet Supabase réel)
+
+Projet Supabase jetable dédié aux tests : URL, clé anon et identifiant de
+l'utilisateur de test vivent dans `TEST-VAULT.local.txt` (non versionné). Le
+schéma `supabase/setup.sql` a été appliqué depuis le SQL Editor (les deux
+politiques RLS apparaissent dans le résultat de vérification).
+
+| # | Parcours | Résultat |
+| - | -------- | -------- |
+| 1 | Connexion Akooti (URL + clé anon + utilisateur) | « Connecté », jetons stockés chiffrés, `user_id` retourné — observé |
+| 2 | « Synchroniser maintenant » | 12 enregistrements poussés (3 dossiers, 4 entrées dont 3 tombstones, 5 règles) et relus ; curseur `server_updated_at` avancé — observé |
+| 3 | Contenu serveur (clé secrète, hors RLS) | 12 lignes, colonnes `ciphertext`/`nonce`/métadonnées uniquement, aucun titre ni mot de passe (grep = 0) — observé |
+| 4 | Isolation RLS | un second utilisateur, créé puis supprimé, voyait **0** ligne ; l'utilisateur de test en voit 12 + son enveloppe — observé |
+| 5 | Création d'une entrée puis sync | 13 lignes côté serveur, `is_deleted = false`, `version` bumpée par le trigger — observé |
+| 6 | Suppression puis sync | même identifiant avec `is_deleted = true` (tombstone), l'entrée disparaît de la liste locale — observé |
+| 7 | Realtime | après un `PATCH` serveur sur une ligne, le curseur et `lastSyncAt` avancent **sans** action manuelle — observé |
+| 8 | Cible locale + rétention | sauvegarde planifiée au démarrage, 3 runs → 2 fichiers conservés — observé |
+| 9 | Export d'instantané | dialogue natif, fichier relu (magic `AKOOTI-SNAP1`) — observé |
+| 10 | Export JSON en clair | refusé avec un mauvais mot de passe, écrit et vérifié avec le bon (aucun `ak_mcp_`), puis supprimé — observé |
+| 11 | Restauration depuis l'écran verrouillé | dialogue natif non piloté (focus Wayland) ; round-trip couvert par `tests/backup_test.rs` — à rejouer à la main |
+
+Chemins non couverts faute de compte réel : S3 (SigV4 vérifié hors ligne) et
+Google Drive (refresh token).
+
+## 9. Grille à recopier pour une nouvelle phase
 
 ```text
 Phase :            …            Date : …            OS / WebKit : …
@@ -338,7 +402,7 @@ Fuites : sortie de l'hôte, console du worker, stockage local, ligne d'audit …
 Défauts trouvés : … (chacun devient un correctif + un test)
 ```
 
-## 8. Ce que cette recette ne couvre pas
+## 10. Ce que cette recette ne couvre pas
 
 | Sujet | Raison | Suivi |
 | ----- | ------ | ----- |
@@ -346,5 +410,6 @@ Défauts trouvés : … (chacun devient un correctif + un test)
 | Cérémonie WebAuthn jouée depuis un site réel | le navigateur de l'application ne charge pas d'extension non empaquetée ; le daemon, lui, est couvert par des tests de dispatch | §6.4, « reste à faire à la main » |
 | Remplissage piloté par un agent via le pont natif | le pont ne sert que les remplissages initiés par l'extension (`vaultExtensionFill`) | [ADR 0008](./adr/0008-extension-native-messaging.md) |
 | Transport IPC et enregistrement Windows | named pipe non implémenté, manifeste stocké dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
-| Sync Supabase, sauvegardes, santé du coffre | non implémentés | [fonctionalites.md](./fonctionalites.md) |
+| S3 et Google Drive en conditions réelles | demandent un bucket et un compte Google ; testés hors ligne (signature, conversions, parseurs) | §8.1 |
+| Réponse HIBP réelle dans la recette | dépend d'un service tiers et du réseau ; le parseur et la comparaison locale sont testés hors ligne | §7.1 |
 | Packaging et mise à jour | hors périmètre des phases 5 et 6 | phase ultérieure |

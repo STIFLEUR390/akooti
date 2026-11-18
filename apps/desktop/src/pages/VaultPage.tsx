@@ -17,9 +17,11 @@ import { useTheme } from "../hooks/useTheme";
 import { useTotp } from "../hooks/useTotp";
 import { useVaultData } from "../hooks/useVaultData";
 import type { AkootiApi, BuildInfo, PasswordOptions } from "../lib/ipc";
+import { HealthPage } from "./HealthPage";
 import { ImportPage } from "./ImportPage";
 import { McpPage } from "./McpPage";
 import { RoutingPage } from "./RoutingPage";
+import { SyncPage } from "./SyncPage";
 
 interface VaultPageProps {
   api: AkootiApi;
@@ -253,6 +255,20 @@ export function VaultPage({
         ) : null}
 
         {vault.screen === "mcp" ? <McpPage api={api} folders={folders} notices={notices} /> : null}
+
+        {vault.screen === "sync" ? <SyncPage api={api} /> : null}
+
+        {vault.screen === "health" ? (
+          <HealthPage
+            api={api}
+            onAudited={vault.reload}
+            onOpenItem={(itemId) => {
+              vault.setActiveFolderId(null);
+              vault.setSelectedId(itemId);
+              vault.setScreen("vault");
+            }}
+          />
+        ) : null}
       </main>
 
       {modal.kind === "create" || modal.kind === "edit" ? (

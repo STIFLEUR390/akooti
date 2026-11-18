@@ -19,6 +19,13 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
     `vault_mcp.rs` holds the scoped operations. Expired agent accounts are purged by
     `items/maintenance.rs`, driven by `VaultRuntime::run_maintenance` on the UI loop —
     not by a timer.
+  - `health.rs`: offline zxcvbn scoring, reuse (HMAC-SHA256 under the master key) and
+    age. HIBP is split: `breach_targets` exposes the 5-character SHA-1 prefixes, the
+    shell fetches the range, `apply_breach_range` compares suffixes locally. No network.
+  - `sync.rs`: E2EE record codec (folder/item/passkey/routing_rule), LWW + tombstones,
+    envelope. `snapshot.rs`/`vault_snapshot.rs`: `.akooti` format, restore, plaintext
+    export after a master-password check. `backup.rs`: encrypted targets, retention,
+    run history. Still no network code here (SEC-5).
 - `crates/akooti-ipc` — the local wire protocol: 4-byte LE length + JSON, 1 MiB cap,
   `Request`/`Response`, socket path (`AKOOTI_SOCKET`, else `$XDG_RUNTIME_DIR/akooti/daemon.sock`)
   and the blocking `DaemonClient`. Unix only; Windows named pipes deferred (ADR 0006).
@@ -33,9 +40,14 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   `vault_runtime.rs` owns the shared `Arc<VaultRuntime>` and 15-minute lock,
   `daemon/` is the IPC server (`inject.rs` = CDP fill, `exec.rs` = `vault_exec` masking),
   `commands/` is the typed IPC surface, `dto.rs`/`error.rs` the payloads and stable codes.
+  `commands/health.rs` is the HIBP egress: `range/{prefix}`, explicit gesture, in-memory
+  cache, `health:progress` events. `sync/` holds the Supabase REST + Realtime clients,
+  `backup/` the local/S3 SigV4/Drive drivers and the hourly scheduler; `commands/sync.rs`,
+  `commands/backup.rs` and `commands/export.rs` are the IPC surface.
 - `apps/desktop` — React/Vite UI. `lib/ipc.ts` is the typed command bridge with an in-memory
   mock used outside Tauri; `hooks/`, `components/`, `pages/` cover unlock, vault, generator,
-  import, routing and the AI access page. `apps/extension` is WXT: service worker
+  import, routing, the AI access page, the vault health dashboard and sync/backups.
+  `apps/extension` is WXT: service worker
   (`entrypoints/background.ts`, the only bridge client), popup (React), content script,
   `lib/dom` heuristics and a MAIN-world WebAuthn shim injected by an ISOLATED script.
   `packages/shared` exports raw `.ts` (no build step) as `@akooti/shared`, aliased in
@@ -44,7 +56,7 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   🧭 planned, ⚠️ known limit. `docs/README.md` is the index, `docs/regles.md` the normative
   rules, `docs/architecture.md` processes/flows/contracts, `docs/testing.md` coverage,
   `docs/desktop-tests.md` the manual recipe, `docs/adr/` the decisions. Still design-only:
-  sync, backups, vault health, the Rust WebAuthn authenticator (the shim intercepts, then
+  the Rust WebAuthn authenticator (the shim intercepts, then
   falls back to the browser), and Windows (named pipe + registry manifest).
   Verify against `src/` before assuming; the code wins.
 

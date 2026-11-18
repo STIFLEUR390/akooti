@@ -103,7 +103,9 @@ jetons MCP, les règles de routage et les tests s'y réfèrent.
 - Sélecteurs mémorisés : `username_selector`, `password_selector`,
   `totp_selector`, `submit_selector` — réutilisés par l'injection aveugle.
 - Hygiène : `zxcvbn_score`, `password_sha1_prefix` (5 caractères, pour HIBP),
-  `is_compromised`, `password_updated_at`.
+  `is_compromised`, `password_updated_at`. Remplies par l'audit de santé
+  (`crates/akooti-core/src/health.rs`) ; le suffixe SHA-1 n'est jamais stocké,
+  la comparaison avec une réponse HIBP se fait à la volée.
 - Traçabilité IA : `created_by_agent`, `expires_at` (TTL des comptes de test).
 - Divers : `favorite`, `created_at`, `updated_at`, `deleted_at`.
 - Index : `idx_items_primary_url` (filtré sur `deleted_at IS NULL`) et
@@ -159,14 +161,28 @@ demandé aucun changement de schéma.
 Ces trois tables **ne quittent jamais la machine** : elles ne sont pas
 synchronisées (règle AI-5).
 
-### 2.8 `backup_targets` — table créée, usage prévu
+### 2.8 `backup_targets` et `backup_runs` — sauvegardes
 
 `provider` (`local`, `s3`, `gdrive`), configuration chiffrée
-(`encrypted_config` + nonce), `interval_minutes`, `retention_count`,
-`last_run_at`, `last_status`. Aucune écriture tant que le planificateur de
-sauvegarde n'est pas livré.
+(`encrypted_config` + nonce, AAD `akooti:v1:backup-target:<id>`),
+`interval_minutes` (60 minimum), `retention_count`, `last_run_at`,
+`last_status`. Les identifiants (clé S3, refresh token Drive) ne sortent jamais
+du cœur et ne sont **jamais** renvoyés à l'interface.
 
-### 2.9 PRAGMA
+`backup_runs` journalise chaque tentative : `target_id`, `started_at`,
+`finished_at`, `status` (`success` / `error`), `detail` sans secret,
+`size_bytes`, `snapshot_name`. La rétention supprime les instantanés
+`akooti-<epoch>.akooti` au-delà du nombre conservé.
+
+### 2.9 `sync_config` — état local de la synchronisation
+
+Une seule ligne : `enabled`, `supabase_url`, `anon_key` (publique), `user_id`,
+`device_id`, `cursor` (dernier `server_updated_at` reçu), `last_sync_at`,
+`last_status`, `last_error`, et la session Supabase **chiffrée**
+(`encrypted_session` + nonce, AAD `akooti:v1:sync-session`). Cette table est
+locale uniquement : elle n'est ni synchronisée ni exportée (AI-5).
+
+### 2.10 PRAGMA
 
 ```sql
 PRAGMA foreign_keys = ON;   -- intégrité référentielle
@@ -179,13 +195,16 @@ base (ou à faire disparaître par un checkpoint avant copie).
 
 ---
 
-## 3. Schéma Supabase (conception, non implémenté)
+## 3. Schéma Supabase (livré : `supabase/setup.sql`)
 
 Objectif : un administrateur de la base PostgreSQL ne doit pouvoir lire **ni un
 titre, ni une URL, ni un nom de dossier, ni même compter** les dossiers ou
 passkeys d'un utilisateur. Le client Rust sérialise chaque objet, le chiffre en
 XChaCha20-Poly1305 avec la clé dérivée localement, et ne pousse que
 `ciphertext` + `nonce`.
+
+Le fichier appliqué au projet de l'utilisateur est la source de vérité ; il est
+reproduit ici pour la revue.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";

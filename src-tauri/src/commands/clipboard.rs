@@ -120,3 +120,21 @@ mod tests {
         assert!(guard.is_current(second));
     }
 }
+
+/// Copies non-secret text (setup script, project URL) without a purge timer.
+///
+/// # Errors
+///
+/// Returns `clipboard` when the platform clipboard cannot be written.
+#[tauri::command]
+pub fn copy_text(app: AppHandle, value: String) -> Result<(), CommandError> {
+    if value.is_empty() {
+        return Err(CommandError::new(
+            "invalid_input",
+            "Il n'y a rien à copier.",
+        ));
+    }
+    app.clipboard()
+        .write_text(value)
+        .map_err(|_| CommandError::new("clipboard", "Le presse-papiers est indisponible."))
+}

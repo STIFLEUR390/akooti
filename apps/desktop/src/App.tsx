@@ -123,6 +123,16 @@ export function App() {
           biometrics={biometrics}
           onUnlock={handleUnlock}
           onCreate={handleCreate}
+          onRestore={async () => {
+            try {
+              const restored = await api.restoreSnapshot();
+              await refreshStatus();
+              return restored;
+            } catch (caught) {
+              setError(toIpcError(caught).message);
+              return null;
+            }
+          }}
         />
         <Toasts toasts={toasts} onDismiss={dismiss} />
       </>

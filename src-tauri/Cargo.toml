@@ -25,8 +25,11 @@ akooti-core = { path = "../crates/akooti-core" }
 akooti-ipc = { path = "../crates/akooti-ipc" }
 akooti-mcp = { path = "../crates/akooti-mcp" }
 base64 = "0.22"
+hex = "0.4"
+hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-cli = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -34,7 +37,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-mcp-bridge = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tungstenite = "0.30"
+tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 ureq = "3"
 zeroize = "1"
 

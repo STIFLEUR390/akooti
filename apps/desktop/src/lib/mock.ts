@@ -21,12 +21,19 @@ import type {
 } from "@akooti/shared";
 
 import { IpcError } from "./ipc";
+import { estimatePassword } from "./strength";
 import type {
   AkootiApi,
+  BackupRun,
+  BackupTarget,
+  BreachReport,
   BuildInfo,
   ClipboardReceipt,
   CreateItemInput,
+  ExportReceipt,
   GeneratedSecret,
+  HealthFinding,
+  HealthReport,
   ImportFormat,
   ImportOptions,
   ImportPreview,
@@ -38,6 +45,8 @@ import type {
   McpTokenDraft,
   PassphraseOptions,
   PasswordOptions,
+  SyncRun,
+  SyncStatus,
   UpdateItemInput,
   VaultStatus,
 } from "./ipc";
@@ -67,6 +76,9 @@ interface MockState {
   routingEnabled: boolean;
   tokens: McpToken[];
   audit: McpAuditEntry[];
+  sync: SyncStatus;
+  backupTargets: BackupTarget[];
+  backupRuns: BackupRun[];
 }
 
 function now(): number {
@@ -248,6 +260,18 @@ export function createMockApi(): AkootiApi {
     routingEnabled: true,
     tokens: [],
     audit: [],
+    sync: {
+      enabled: false,
+      connected: false,
+      supabaseUrl: null,
+      userId: null,
+      cursor: null,
+      lastSyncAt: null,
+      lastStatus: null,
+      lastError: null,
+    },
+    backupTargets: [],
+    backupRuns: [],
   };
 
   function requireUnlocked(): void {
@@ -587,11 +611,246 @@ export function createMockApi(): AkootiApi {
       return { value, entropyBits: entropyBits(count, WORDS.length) };
     },
 
+    async auditHealth(): Promise<HealthReport> {
+      requireUnlocked();
+      const passwords = new Map<string, number>();
+      for (const item of state.items) {
+        if (item.password) {
+          passwords.set(item.password, (passwords.get(item.password) ?? 0) + 1);
+        }
+      }
+      const findings: HealthFinding[] = [];
+      for (const item of state.items) {
+        if (!item.password) {
+          continue;
+        }
+        const score = estimatePassword(item.password).score;
+        item.zxcvbnScore = score;
+        findings.push({
+          itemId: item.id,
+          title: item.title,
+          primaryUrl: item.primaryUrl,
+          username: item.username,
+          score,
+          reused: (passwords.get(item.password) ?? 0) > 1,
+          compromised: item.isCompromised,
+          ageDays:
+            item.passwordUpdatedAt === null
+              ? null
+              : Math.max(0, Math.floor((now() - item.passwordUpdatedAt) / 86_400)),
+        });
+      }
+      const total = findings.reduce((sum, finding) => sum + finding.score, 0);
+      return {
+        findings,
+        withoutPassword: state.items.length - findings.length,
+        averageScore: findings.length > 0 ? total / findings.length : null,
+      };
+    },
+
+    async checkBreaches(): Promise<BreachReport> {
+      requireUnlocked();
+      // The demo vault never leaves the browser, so every prefix stays unknown.
+      return {
+        checked: 0,
+        compromised: 0,
+        unknown: state.items.filter((item) => item.password !== null).length,
+      };
+    },
+
+    async exportHealthReport(): Promise<string | null> {
+      requireUnlocked();
+      return null;
+    },
+
+    async syncStatus(): Promise<SyncStatus> {
+      return state.sync;
+    },
+
+    async syncSignIn(input): Promise<SyncStatus> {
+      if (!input.supabaseUrl || !input.anonKey || !input.email || !input.password) {
+        throw new IpcError("invalid_input", "Tous les champs Supabase sont requis.");
+      }
+      state.sync = {
+        ...state.sync,
+        enabled: true,
+        connected: true,
+        supabaseUrl: input.supabaseUrl,
+        userId: "demo-user",
+        lastStatus: "success",
+        lastSyncAt: now(),
+      };
+      return state.sync;
+    },
+
+    async syncConfigure(enabled, supabaseUrl, anonKey): Promise<SyncStatus> {
+      void anonKey;
+      state.sync = { ...state.sync, enabled, supabaseUrl };
+      return state.sync;
+    },
+
+    async syncDisconnect(): Promise<SyncStatus> {
+      state.sync = {
+        enabled: false,
+        connected: false,
+        supabaseUrl: null,
+        userId: null,
+        cursor: null,
+        lastSyncAt: null,
+        lastStatus: null,
+        lastError: null,
+      };
+      return state.sync;
+    },
+
+    async syncNow(): Promise<SyncRun> {
+      requireUnlocked();
+      if (!state.sync.connected) {
+        throw new IpcError("sync_disabled", "Connectez-vous à Supabase pour synchroniser.");
+      }
+      return {
+        pushed: state.items.length,
+        pulled: 0,
+        applied: 0,
+        skipped: 0,
+        at: now(),
+        full: false,
+      };
+    },
+
+    async syncResync(): Promise<SyncRun> {
+      const run = await this.syncNow();
+      return { ...run, full: true };
+    },
+
+    async supabaseSetupSql(): Promise<string> {
+      return "-- script Supabase (démo)\nselect 1;\n";
+    },
+
+    async saveSupabaseSetup(): Promise<string | null> {
+      return null;
+    },
+
+    async copyText(value: string): Promise<void> {
+      void value;
+    },
+
+    async listBackupTargets(): Promise<BackupTarget[]> {
+      requireUnlocked();
+      return state.backupTargets;
+    },
+
+    async createBackupTarget(input) {
+      requireUnlocked();
+      const target: BackupTarget = {
+        id: newId(),
+        name: input.name,
+        provider: input.provider,
+        summary:
+          input.provider === "local"
+            ? (input.path ?? "/tmp/akooti-backups")
+            : input.provider === "s3"
+              ? `${input.endpoint ?? "https://s3.example.test"} · ${input.bucket ?? "bucket"}`
+              : "Google Drive",
+        intervalMinutes: input.intervalMinutes,
+        retentionCount: input.retentionCount,
+        enabled: input.enabled,
+        lastRunAt: null,
+        lastStatus: null,
+      };
+      state.backupTargets = [...state.backupTargets, target];
+      return target;
+    },
+
+    async updateBackupTarget(id, input) {
+      requireUnlocked();
+      const target = state.backupTargets.find((candidate) => candidate.id === id);
+      if (!target) {
+        throw new IpcError("not_found", "Cette cible n'existe plus.");
+      }
+      target.name = input.name;
+      target.enabled = input.enabled;
+      target.intervalMinutes = input.intervalMinutes;
+      target.retentionCount = input.retentionCount;
+      return target;
+    },
+
+    async deleteBackupTarget(id): Promise<void> {
+      requireUnlocked();
+      state.backupTargets = state.backupTargets.filter((candidate) => candidate.id !== id);
+      state.backupRuns = state.backupRuns.filter((run) => run.targetId !== id);
+    },
+
+    async setBackupTargetEnabled(id, enabled) {
+      requireUnlocked();
+      const target = state.backupTargets.find((candidate) => candidate.id === id);
+      if (!target) {
+        throw new IpcError("not_found", "Cette cible n'existe plus.");
+      }
+      target.enabled = enabled;
+      return target;
+    },
+
+    async testBackupTarget(input): Promise<string> {
+      return input.provider === "local"
+        ? `Dossier accessible : ${input.path ?? "—"}`
+        : "Connexion simulée : OK";
+    },
+
+    async runBackupNow(id) {
+      requireUnlocked();
+      const target = state.backupTargets.find((candidate) => candidate.id === id);
+      if (!target) {
+        throw new IpcError("not_found", "Cette cible n'existe plus.");
+      }
+      const stamp = now();
+      const run: BackupRun = {
+        id: newId(),
+        targetId: id,
+        startedAt: stamp,
+        status: "success",
+        detail: target.summary,
+        sizeBytes: 4096,
+        snapshotName: `akooti-${stamp}.akooti`,
+      };
+      state.backupRuns = [run, ...state.backupRuns];
+      target.lastRunAt = stamp;
+      target.lastStatus = "success";
+      return run;
+    },
+
+    async listBackupRuns(targetId, limit = 50) {
+      requireUnlocked();
+      return state.backupRuns
+        .filter((run) => !targetId || run.targetId === targetId)
+        .slice(0, limit);
+    },
+
+    async pickBackupFolder(): Promise<string | null> {
+      return "/tmp/akooti-backups";
+    },
+
+    async exportSnapshot(): Promise<ExportReceipt | null> {
+      requireUnlocked();
+      return null;
+    },
+
+    async exportPlaintext(password): Promise<ExportReceipt | null> {
+      requireUnlocked();
+      if (password !== MASTER_PASSWORD) {
+        throw new IpcError("invalid_credentials", "Mot de passe maître incorrect.");
+      }
+      return null;
+    },
+
+    async restoreSnapshot(): Promise<string | null> {
+      return null;
+    },
+
     async listRoutingRules(): Promise<RoutingRule[]> {
       requireUnlocked();
       return state.rules;
     },
-
     async addRoutingRule(rule) {
       requireUnlocked();
       const created: RoutingRule = {

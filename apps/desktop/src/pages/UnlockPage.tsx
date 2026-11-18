@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { BiometricsStatus } from "../lib/ipc";
 import { estimatePassword } from "../lib/strength";
@@ -12,6 +12,8 @@ interface UnlockPageProps {
   biometrics: BiometricsStatus | null;
   onUnlock: (password: string) => Promise<boolean>;
   onCreate: (password: string) => Promise<boolean>;
+  /** Restores a `.akooti` snapshot; only possible while locked. */
+  onRestore: () => Promise<string | null>;
 }
 
 const MIN_LENGTH = 12;
@@ -30,12 +32,21 @@ export function UnlockPage({
   biometrics,
   onUnlock,
   onCreate,
+  onRestore,
 }: UnlockPageProps) {
   const [mode, setMode] = useState<"unlock" | "create">(hasVault ? "unlock" : "create");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+
+  // A restored snapshot turns an empty device into an unlockable vault.
+  useEffect(() => {
+    if (hasVault) {
+      setMode((current) => (current === "create" ? "unlock" : current));
+    }
+  }, [hasVault]);
 
   const estimate = useMemo(
     () => (mode === "create" ? estimatePassword(password) : null),
@@ -178,6 +189,32 @@ export function UnlockPage({
           >
             {busy ? "Déchiffrement…" : mode === "unlock" ? "Déverrouiller" : "Créer le coffre"}
           </button>
+
+          <button
+            type="button"
+            className="button button--block"
+            onClick={async () => {
+              setLocalError(null);
+              setRestoreNotice(null);
+              const restored = await onRestore();
+              if (restored) {
+                setRestoreNotice(`Instantané restauré : ${restored}`);
+              }
+            }}
+            disabled={busy}
+          >
+            <Icon name="upload" size={15} />
+            Restaurer un instantané
+          </button>
+          <p className="field__hint">
+            La restauration remplace le coffre local et exige ensuite le mot de passe maître de
+            l'instantané.
+          </p>
+          {restoreNotice ? (
+            <p className="field__hint" role="status">
+              {restoreNotice}
+            </p>
+          ) : null}
 
           {biometrics?.available ? (
             <button type="button" className="button button--block" disabled>

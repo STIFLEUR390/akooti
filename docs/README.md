@@ -15,6 +15,7 @@ détail.
 | [schema.md](./schema.md)                 | Schéma SQLCipher local (source de vérité) et conception Supabase E2EE     | on modifie une table, une migration ou la sync      |
 | [testing.md](./testing.md)               | Stratégie de test, couverture des contrats critiques, règles de fixtures  | on ajoute un test ou on cherche où couvrir quoi     |
 | [desktop-tests.md](./desktop-tests.md)   | Plan de recette manuelle piloté par le pont MCP Tauri                     | on valide une phase dans le binaire réel            |
+| [guides/](./guides/)                     | Guides utilisateur : Supabase, S3, Google Drive                            | on configure une sauvegarde ou la synchronisation   |
 | [adr/](./adr/README.md)                  | Décisions d'architecture datées, avec contexte et conséquences            | une décision structurante est prise ou contestée    |
 
 ## Parcours de lecture
@@ -57,16 +58,17 @@ Le suivi exécutable vit dans le projet Kaneo **AKO — Akooti** (voir
 [`AGENTS.md`](../AGENTS.md) pour les identifiants). Les phases, telles qu'elles
 sont suivies :
 
-| Phase | Périmètre                                                     | Statut |
-| ----- | ------------------------------------------------------------- | ------ |
-| 0     | Fondations : monorepo Cargo + Bun, CI, conventions, bridge MCP | ✅     |
-| 1     | Cryptographie et stockage chiffré (`akooti-core`)              | ✅     |
-| 2     | Fonctions du coffre : générateur, TOTP, routage                | ✅     |
-| 3     | Importateurs universels et hygiène post-import                 | ✅     |
-| 4     | Application desktop Tauri v2 (interface du coffre)             | ✅     |
-| 5     | Pont IA : CLI, daemon IPC, serveur MCP Zero-Leak               | ✅     |
-| 6     | Extension WXT multi-navigateurs, pont Native Messaging, passkeys | ✅     |
-| 7+    | Synchronisation Supabase E2EE, sauvegardes planifiées, santé    | 🧭     |
+| Phase | Périmètre                                                        | Statut |
+| ----- | ---------------------------------------------------------------- | ------ |
+| 0     | Fondations : monorepo Cargo + Bun, CI, conventions, bridge MCP   | ✅      |
+| 1     | Cryptographie et stockage chiffré (`akooti-core`)                | ✅      |
+| 2     | Fonctions du coffre : générateur, TOTP, routage                  | ✅      |
+| 3     | Importateurs universels et hygiène post-import                   | ✅      |
+| 4     | Application desktop Tauri v2 (interface du coffre)               | ✅      |
+| 5     | Pont IA : CLI, daemon IPC, serveur MCP Zero-Leak                 | ✅      |
+| 6     | Extension WXT multi-navigateurs, pont Native Messaging, passkeys | ✅      |
+| 7     | Santé du coffre : zxcvbn, réutilisation, HIBP k-Anonymity        | ✅      |
+| 8+    | Synchronisation Supabase E2EE, sauvegardes planifiées            | 🧭      |
 
 La phase 6 livrée : pont Native Messaging, `vaultExtensionFill`, popup, capture
 de sélecteurs, enregistrement des manifestes par `akooti native-register`, et un
@@ -77,6 +79,11 @@ navigateur, donc installer Akooti ne casse aucun site. Voir
 [ADR 0008](./adr/0008-extension-native-messaging.md) et
 [architecture.md](./architecture.md) §4.6.
 
-Les fonctionnalités de synchronisation, de sauvegarde planifiée et de santé du
-coffre sont documentées comme cible ([fonctionalites.md](./fonctionalites.md))
-et ne sont pas encore implémentées.
+La phase 7 livrée : audit local (`zxcvbn` côté Rust), réutilisation,
+ancienneté paramétrable, vérification HIBP par _k-Anonymity_ sur geste explicite
+et tableau de bord « Santé » avec export CSV sans secret.
+
+La phase 8 livrée : schéma Supabase (`supabase/migrations`), client E2EE avec
+Realtime et résolution LWW, sauvegardes planifiées (local, S3 SigV4, Drive) avec
+rétention, instantanés `.akooti` et export d'urgence. Les chemins réseau externes
+attendent une recette sur un projet réel.

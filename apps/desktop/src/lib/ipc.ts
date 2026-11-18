@@ -240,6 +240,146 @@ export interface ImportOptions {
   password?: string | null;
 }
 
+/** One audited item: metadata and flags only, never a secret or a digest. */
+export interface HealthFinding {
+  itemId: string;
+  title: string;
+  primaryUrl: string | null;
+  username: string | null;
+  /** zxcvbn score, 0 (weak) to 4 (strong). */
+  score: number;
+  /** Another live item stores the same password. */
+  reused: boolean;
+  /** The password appeared in a known breach. */
+  compromised: boolean;
+  /** Days since the last password change. */
+  ageDays: number | null;
+}
+
+/** Result of a local vault audit. */
+export interface HealthReport {
+  findings: HealthFinding[];
+  /** Live items without a password (notes, key sets, ...). */
+  withoutPassword: number;
+  averageScore: number | null;
+}
+
+/** Outcome of a HIBP k-anonymity check. */
+export interface BreachReport {
+  checked: number;
+  compromised: number;
+  unknown: number;
+}
+
+/** Audit or breach check in flight. */
+export interface HealthProgress {
+  phase: "local" | "breach";
+  done: number;
+  total: number;
+}
+
+/** Supabase sync configuration and last outcome. */
+export interface SyncStatus {
+  enabled: boolean;
+  connected: boolean;
+  supabaseUrl: string | null;
+  userId: string | null;
+  cursor: string | null;
+  lastSyncAt: number | null;
+  lastStatus: string | null;
+  lastError: string | null;
+}
+
+/** Outcome of one sync run. */
+export interface SyncRun {
+  pushed: number;
+  pulled: number;
+  applied: number;
+  skipped: number;
+  at: number;
+  full: boolean;
+}
+
+/** Sign-in payload; the password is never stored. */
+export interface SyncSignInInput {
+  supabaseUrl: string;
+  anonKey: string;
+  email: string;
+  password: string;
+}
+
+/** Event emitted after a sync run. */
+export interface SyncStatusEvent {
+  status: string;
+  pushed: number;
+  pulled: number;
+  applied: number;
+  skipped: number;
+  detail: string | null;
+  at: number;
+}
+
+/** Backup provider kinds. */
+export type BackupProviderKind = "local" | "s3" | "gdrive";
+
+/** Configured target, without credentials. */
+export interface BackupTarget {
+  id: string;
+  name: string;
+  provider: BackupProviderKind;
+  summary: string;
+  intervalMinutes: number;
+  retentionCount: number;
+  enabled: boolean;
+  lastRunAt: number | null;
+  lastStatus: string | null;
+}
+
+/** Flat target form; credentials are write-only. */
+export interface BackupTargetInput {
+  name: string;
+  provider: BackupProviderKind;
+  path?: string | null;
+  endpoint?: string | null;
+  region?: string | null;
+  bucket?: string | null;
+  accessKeyId?: string | null;
+  secretAccessKey?: string | null;
+  prefix?: string | null;
+  clientId?: string | null;
+  clientSecret?: string | null;
+  refreshToken?: string | null;
+  folderId?: string | null;
+  intervalMinutes: number;
+  retentionCount: number;
+  enabled: boolean;
+}
+
+/** One backup attempt. */
+export interface BackupRun {
+  id: string;
+  targetId: string;
+  startedAt: number;
+  status: string;
+  detail: string | null;
+  sizeBytes: number | null;
+  snapshotName: string | null;
+}
+
+/** Event emitted after a backup run. */
+export interface BackupStatusEvent {
+  targetId: string;
+  name: string;
+  status: string;
+}
+
+/** Written export receipt. */
+export interface ExportReceipt {
+  path: string;
+  sizeBytes: number;
+  format: "snapshot" | "plaintext";
+}
+
 /** Receipt of a secure clipboard write. */
 export interface ClipboardReceipt {
   ttlSeconds: number;
@@ -274,6 +414,44 @@ export interface AkootiApi {
 
   generatePassword(options: PasswordOptions): Promise<GeneratedSecret>;
   generatePassphrase(options: PassphraseOptions): Promise<GeneratedSecret>;
+
+  /** Scores every stored password locally (zxcvbn, reuse, age). */
+  auditHealth(): Promise<HealthReport>;
+  /** Checks the stored passwords against HIBP; explicit user gesture only. */
+  checkBreaches(): Promise<BreachReport>;
+  /** Saves the report as CSV through the native dialog; null when cancelled. */
+  exportHealthReport(report: HealthReport): Promise<string | null>;
+
+  syncStatus(): Promise<SyncStatus>;
+  syncSignIn(input: SyncSignInInput): Promise<SyncStatus>;
+  syncConfigure(
+    enabled: boolean,
+    supabaseUrl: string | null,
+    anonKey: string | null,
+  ): Promise<SyncStatus>;
+  syncDisconnect(): Promise<SyncStatus>;
+  syncNow(): Promise<SyncRun>;
+  syncResync(): Promise<SyncRun>;
+  /** SQL setup script embedded in the build; safe to copy or save. */
+  supabaseSetupSql(): Promise<string>;
+  /** Saves the setup script through the native dialog. */
+  saveSupabaseSetup(): Promise<string | null>;
+  /** Copies non-secret text without a purge timer. */
+  copyText(value: string): Promise<void>;
+
+  listBackupTargets(): Promise<BackupTarget[]>;
+  createBackupTarget(input: BackupTargetInput): Promise<BackupTarget>;
+  updateBackupTarget(id: string, input: BackupTargetInput): Promise<BackupTarget>;
+  deleteBackupTarget(id: string): Promise<void>;
+  setBackupTargetEnabled(id: string, enabled: boolean): Promise<BackupTarget>;
+  testBackupTarget(input: BackupTargetInput): Promise<string>;
+  runBackupNow(id: string): Promise<BackupRun>;
+  listBackupRuns(targetId?: string, limit?: number): Promise<BackupRun[]>;
+  pickBackupFolder(): Promise<string | null>;
+
+  exportSnapshot(): Promise<ExportReceipt | null>;
+  exportPlaintext(password: string): Promise<ExportReceipt | null>;
+  restoreSnapshot(): Promise<string | null>;
 
   listRoutingRules(): Promise<RoutingRule[]>;
   addRoutingRule(rule: NewRoutingRuleInput): Promise<RoutingRule>;
@@ -340,17 +518,26 @@ interface TauriInvoke {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 }
 
+interface TauriEventModule {
+  listen<T>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
+}
+
 interface TauriGlobal {
   core?: TauriInvoke;
   invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+  event?: TauriEventModule;
+}
+
+function tauriGlobal(): TauriGlobal | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__ ?? null;
 }
 
 /** Reads the `window.__TAURI__` bridge installed by `withGlobalTauri`. */
 function tauriBridge(): TauriInvoke | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const global = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
+  const global = tauriGlobal();
   if (!global) {
     return null;
   }
@@ -386,6 +573,38 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
+async function listenEvent<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+  const events = tauriGlobal()?.event;
+  if (!events) {
+    return () => {};
+  }
+  return events.listen<T>(event, (payload) => handler(payload.payload));
+}
+
+/**
+ * Subscribes to audit and breach-check progress.
+ *
+ * Outside Tauri (mock mode) no events are emitted: the handler is never called
+ * and the returned unsubscribe is a no-op.
+ */
+export function listenHealthProgress(
+  handler: (progress: HealthProgress) => void,
+): Promise<() => void> {
+  return listenEvent("health:progress", handler);
+}
+
+/** Subscribes to sync outcomes. */
+export function listenSyncStatus(handler: (event: SyncStatusEvent) => void): Promise<() => void> {
+  return listenEvent("sync:status", handler);
+}
+
+/** Subscribes to backup outcomes. */
+export function listenBackupStatus(
+  handler: (event: BackupStatusEvent) => void,
+): Promise<() => void> {
+  return listenEvent("backup:status", handler);
+}
+
 /** The Tauri-backed implementation. */
 export const tauriApi: AkootiApi = {
   vaultStatus: () => call("vault_status"),
@@ -416,6 +635,36 @@ export const tauriApi: AkootiApi = {
 
   generatePassword: (options) => call("generate_password", { options }),
   generatePassphrase: (options) => call("generate_passphrase", { options }),
+
+  auditHealth: () => call("audit_health"),
+  checkBreaches: () => call("check_breaches"),
+  exportHealthReport: (report) => call("export_health_report", { report }),
+
+  syncStatus: () => call("sync_status"),
+  syncSignIn: (input) => call("sync_sign_in", { input }),
+  syncConfigure: (enabled, supabaseUrl, anonKey) =>
+    call("sync_configure", { enabled, supabaseUrl, anonKey }),
+  syncDisconnect: () => call("sync_disconnect"),
+  syncNow: () => call("sync_now"),
+  syncResync: () => call("sync_resync"),
+  supabaseSetupSql: () => call("supabase_setup_sql"),
+  saveSupabaseSetup: () => call("save_supabase_setup"),
+  copyText: (value) => call("copy_text", { value }),
+
+  listBackupTargets: () => call("list_backup_targets"),
+  createBackupTarget: (input) => call("create_backup_target", { input }),
+  updateBackupTarget: (id, input) => call("update_backup_target", { id, input }),
+  deleteBackupTarget: (id) => call("delete_backup_target", { id }),
+  setBackupTargetEnabled: (id, enabled) => call("set_backup_target_enabled", { id, enabled }),
+  testBackupTarget: (input) => call("test_backup_target", { input }),
+  runBackupNow: (id) => call("run_backup_now", { id }),
+  listBackupRuns: (targetId, limit) =>
+    call("list_backup_runs", { targetId: targetId ?? null, limit: limit ?? null }),
+  pickBackupFolder: () => call("pick_backup_folder"),
+
+  exportSnapshot: () => call("export_snapshot"),
+  exportPlaintext: (password) => call("export_plaintext", { password }),
+  restoreSnapshot: () => call("restore_snapshot"),
 
   listRoutingRules: () => call("list_routing_rules"),
   addRoutingRule: (rule) => call("add_routing_rule", { rule }),

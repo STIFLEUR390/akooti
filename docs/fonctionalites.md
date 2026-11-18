@@ -149,18 +149,19 @@ Ce que l'authentificateur du coffre ne fera jamais, et qui est dit au site :
 | Fonction                          | Comportement attendu                                                                 | Statut |
 | --------------------------------- | ------------------------------------------------------------------------------------ | ------ |
 | Base locale primaire              | Le coffre SQLCipher est la source de vérité, utilisable hors ligne                     | ✅     |
-| Sync temps réel (Supabase)        | Projet Supabase propre à l'utilisateur, enregistrements chiffrés côté client, Realtime | 🧭     |
-| Résolution de conflits            | Horodatage logique par enregistrement, suppressions propagées par tombstone           | 🧭     |
-| Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | 🧭 |
-| Export d'urgence                  | Export JSON, chiffré ou en clair après confirmation du mot de passe maître            | 🧭     |
+| Sync temps réel (Supabase)        | Projet Supabase propre à l'utilisateur, enregistrements XChaCha20 côté client, Realtime, RLS | ✅ |
+| Résolution de conflits            | Horodatage logique par enregistrement (LWW, égalité = l'arrivant gagne), suppressions propagées par tombstone | ✅ |
+| Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | ✅ ⚠️ S3/Drive à vérifier sur un compte réel |
+| Export d'urgence                  | Instantané `.akooti` chiffré, export JSON en clair après confirmation du mot de passe maître, restauration de l'instantané | ✅ |
 
 ## 9. Santé du coffre
 
-| Fonction                        | Comportement attendu                                                                    | Statut |
-| ------------------------------- | --------------------------------------------------------------------------------------- | ------ |
-| Détection de faiblesse          | Score `zxcvbn` local (dictionnaire, dates, suites clavier)                               | 🧭     |
-| Réutilisation et ancienneté     | Repérage des mots de passe partagés entre comptes et des secrets trop anciens            | 🧭     |
-| Vérification de fuite (HIBP)    | `k-Anonymity` : seuls les 5 premiers caractères du SHA-1 sont envoyés                     | 🧭     |
+| Fonction                     | Comportement attendu                                                                   | Statut |
+| ---------------------------- | -------------------------------------------------------------------------------------- | ------ |
+| Détection de faiblesse       | Score `zxcvbn` local (dictionnaires, dates, suites clavier, pseudo et titre)           | ✅      |
+| Réutilisation et ancienneté  | Repérage des mots de passe partagés entre comptes et des secrets trop anciens          | ✅      |
+| Vérification de fuite (HIBP) | `k-Anonymity` : 5 caractères du SHA-1 envoyés, comparaison locale, cache 24 h          | ✅      |
+| Tableau de bord              | Synthèse, filtres, accès à l'entrée, remédiation (générateur + historique), export CSV | ✅      |
 
 ## 10. Récapitulatif
 
@@ -172,5 +173,5 @@ Ce que l'authentificateur du coffre ne fera jamais, et qui est dit au site :
 | IA                         | 5 outils sur 6, jetons cloisonnés, audit              | `vault_blind_autofill` côté agent (le pont ne sert que l'extension) |
 | Extension                  | appairage, recherche, remplissage, copie, capture, pont natif, passkeys | Safari |
 | Génération                 | mots de passe + passphrases                          | —                                         |
-| Sync / sauvegardes         | base locale                                          | Supabase E2EE, Cron S3/Drive/local, export |
-| Santé                      | —                                                    | zxcvbn, réutilisation, HIBP k-Anonymity   |
+| Sync / sauvegardes         | base locale, snapshots `.akooti`, cron local + rétention, export d'urgence, sync Supabase E2EE | S3/Drive à vérifier sur un compte réel |
+| Santé                      | zxcvbn, réutilisation, ancienneté, HIBP k-Anonymity   | —                                         |

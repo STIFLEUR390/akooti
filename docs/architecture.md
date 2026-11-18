@@ -59,9 +59,8 @@ daemon d'agir, et le daemon décide.
                     +----------------------------------------+
 ```
 
-Ce qui **n'existe pas encore** : synchronisation Supabase, sauvegardes
-planifiées (S3 / Drive / local), audit de santé du coffre et transport IPC
-Windows. Ils sont décrits comme cible et marqués 🧭.
+Ce qui **n'existe pas encore** : transport IPC Windows, packaging et mises à
+jour. Ils sont décrits comme cible et marqués 🧭.
 
 ## 2. Processus et détention de la clé
 
@@ -213,6 +212,62 @@ pour les cérémonies WebAuthn servies à l'extension, et `access_denied` pour l
 refus. Une ligne ne contient jamais de valeur secrète,
 seulement une origine, un identifiant technique et un diagnostic court.
 
+### 4.8 Santé du coffre
+
+```text
+UI « Analyser le coffre » -> commande `audit_health` -> akooti-core
+   -> déchiffrement en RAM, score zxcvbn (pseudo + titre en entrées utilisateur)
+   -> SHA-1 tronqué à 5 caractères, HMAC-SHA256 de la clé maître pour la réutilisation
+   -> zxcvbn_score / password_sha1_prefix persistés, rapport sans aucun secret
+
+UI « Vérifier les fuites (HIBP) » -> commande `check_breaches`
+   -> shell : GET api.pwnedpasswords.com/range/{préfixe} (Add-Padding, cache mémoire 24 h)
+   -> suffixes renvoyés au cœur : comparaison locale, `is_compromised` mis à jour
+```
+
+- Aucun code réseau dans `akooti-core` (règle SEC-5) : le cœur ne manipule que
+  des préfixes qu'il a calculés et des suffixes reçus. Une requête qui échoue
+  laisse le drapeau inchangé et compte « inconnu » — un poste hors ligne n'est
+  jamais bloqué.
+- Les deux étapes sont des gestes explicites : elles déchiffrent chaque mot de
+  passe, et la seconde envoie un préfixe à un tiers (règle SEC-11).
+- L'audit signale sa progression par entrée (`on_progress`) et tourne sur un
+  thread de travail : la webview affiche l'avancement au lieu de geler.
+- Le seuil d'ancienneté est une préférence d'interface (`localStorage`), pas une
+  donnée du coffre ; le rapport renvoie `age_days` et laisse l'UI filtrer.
+
+### 4.9 Synchronisation et sauvegardes
+
+```text
+UI « Synchroniser » -> commande sync_now -> akooti-core : sérialise et chiffre
+   chaque folder/item/passkey/routing_rule (XChaCha20, AAD type+id)
+   -> shell : POST /rest/v1/akooti_sync_records (on_conflict user_id,id)
+   -> GET deltas depuis sync_config.cursor -> apply_sync_records (LWW + tombstones)
+
+Realtime -> wss://<projet>/realtime/v1/websocket -> événement postgres_changes
+   -> pull du delta (reconnexion avec backoff, resynchronisation après coupure)
+
+Planificateur (thread, tick 60 s) -> cibles dues -> write_snapshot(.akooti)
+   -> pilote local / S3 / Drive -> rétention -> backup_runs + événement
+```
+
+- Le serveur ne reçoit que des blobs : ni titre, ni URL, ni nom de dossier, ni
+  nombre d'objets (règle SEC-12). L'enveloppe publique (sel Argon2id + clé
+  encapsulée) permet à un autre appareil de dériver la même clé.
+- Le conflit se résout sur `client_updated_at` : un enregistrement strictement
+  plus ancien est ignoré, une égalité laisse gagner l'arrivant, donc rejouer un
+  lot est idempotent et une suppression de la même seconde se propage.
+- Les suppressions voyagent en tombstones (`is_deleted`), sans révéler ce qui a
+  été supprimé.
+- Une sauvegarde ne chiffre rien de neuf : le fichier `.akooti` contient
+  `vault.meta` et `vault.db` déjà chiffrés, après un `wal_checkpoint`.
+- La restauration exige un coffre verrouillé : remplacer les fichiers sous une
+  connexion SQLCipher ouverte laisserait l'application avec une clé orpheline.
+- S3 est signé en SigV4 (path-style) et Drive utilise un refresh token fourni
+  par l'utilisateur : aucun secret OAuth n'est stocké ailleurs que dans la base
+  locale, chiffré par la clé maître.
+
+
 ## 5. Contrats techniques
 
 | Contrat            | Règle                                                                                   |
@@ -248,6 +303,10 @@ akooti/
 │   │       ├── generator.rs        mots de passe OsRng, passphrases EFF
 │   │       ├── totp.rs             codes TOTP (RFC 6238)
 │   │       ├── importers/          Buttercup, Bitwarden, Proton, KeePass, 1Password, CSV
+│   │       ├── health.rs           audit zxcvbn, réutilisation, ancienneté, HIBP local
+│   │       ├── sync.rs             codec E2EE, LWW, tombstones, enveloppe
+│   │       ├── snapshot.rs         format `.akooti`, export/restauration
+│   │       ├── backup.rs           cibles chiffrées, rétention, historique
 │   │       ├── mcp/                jetons (SHA-256, portées), store, audit
 │   │       ├── passkeys.rs         authentificateur WebAuthn : ES256, CBOR, COSE
 │   │       └── vault_mcp.rs        opérations cloisonnées + plans d'injection
@@ -261,11 +320,14 @@ akooti/
 │       ├── native_register.rs      manifestes Native Messaging par navigateur et par OS
 │       ├── vault_runtime.rs        `Arc<VaultRuntime>`, verrou auto 15 min
 │       ├── daemon/                 serveur IPC + inject.rs (CDP) + exec.rs (masquage)
+│       ├── sync/                    client Supabase REST + Realtime (backoff)
+│       ├── backup/                  pilotes local / S3 SigV4 / Drive + planificateur
 │       └── commands/               surface IPC typée (vault, items, folders, generator,
-│                                   routing, import/export, clipboard, mcp, system)
+│                                   routing, import/export, health, sync, backup, export,
+│                                   clipboard, mcp, system)
 ├── apps/
 │   ├── desktop/                # React + Vite : unlock, coffre, générateur, import,
-│   │                           # routage, page « Accès IA »
+│   │                           # routage, « Accès IA », santé, sync & sauvegardes
 │   └── extension/              # WXT : un source, Chrome/Edge/Brave (MV3) et Firefox (MV2)
 │       ├── wxt.config.ts           manifeste, permissions, ressource web-accessible
 │       ├── entrypoints/
@@ -285,7 +347,7 @@ akooti/
 ```
 
 Les modules suivants sont **ciblés mais absents** et ne doivent pas être
-supposés présents : `health.rs`, `sync_supabase.rs`, `backup/`.
+supposés présents : `sync_supabase.rs`, `backup/`.
 Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 
 ## 7. Décisions structurantes
@@ -314,4 +376,4 @@ Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 | Aucun fournisseur biométrique branché ; l'interface masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
 | Les secrets TOTP de moins de 128 bits sont acceptés (services réels) | [ADR 0007](./adr/0007-fills-et-secrets-totp-courts.md) |
 | `SelectorOverride.submit: null` ne désactive pas la soumission (indistinguable d'« absent ») | `daemon/inject.rs` |
-| Synchronisation, sauvegardes, audit de santé : non implémentés | phases ultérieures |
+| S3 et Google Drive vérifiés uniquement hors ligne (signature, conversion, parseurs) | projet Supabase / bucket / compte Google à brancher |

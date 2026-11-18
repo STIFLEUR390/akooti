@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod backup;
 mod biometrics;
 mod cli;
 mod commands;
@@ -21,10 +22,12 @@ mod error;
 mod headless;
 mod native_host;
 mod native_register;
+mod sync;
 mod tray;
 mod vault_runtime;
 
 use commands::clipboard::ClipboardGuard;
+use commands::sync::SyncState;
 
 use std::sync::Arc;
 
@@ -111,11 +114,15 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
             commands::items::remove_item_custom_field,
             commands::generator::generate_password,
             commands::generator::generate_passphrase,
+            commands::health::audit_health,
+            commands::health::check_breaches,
+            commands::health::export_health_report,
             commands::routing::list_routing_rules,
             commands::routing::add_routing_rule,
             commands::routing::set_routing_rule_enabled,
             commands::routing::apply_routing_rules,
             commands::clipboard::copy_secret,
+            commands::clipboard::copy_text,
             commands::import_export::list_import_formats,
             commands::import_export::pick_import_file,
             commands::import_export::preview_import_file,
@@ -126,6 +133,26 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
             commands::mcp::delete_mcp_token,
             commands::mcp::list_mcp_audit_log,
             commands::mcp::daemon_status,
+            commands::sync::sync_status,
+            commands::sync::sync_sign_in,
+            commands::sync::sync_configure,
+            commands::sync::sync_disconnect,
+            commands::sync::sync_now,
+            commands::sync::sync_resync,
+            commands::sync::supabase_setup_sql,
+            commands::sync::save_supabase_setup,
+            commands::backup::list_backup_targets,
+            commands::backup::create_backup_target,
+            commands::backup::update_backup_target,
+            commands::backup::delete_backup_target,
+            commands::backup::set_backup_target_enabled,
+            commands::backup::test_backup_target,
+            commands::backup::run_backup_now,
+            commands::backup::list_backup_runs,
+            commands::backup::pick_backup_folder,
+            commands::export::export_snapshot,
+            commands::export::export_plaintext,
+            commands::export::restore_snapshot,
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -137,6 +164,7 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(std::io::Error::other("vault runtime is already managed").into());
             }
             app.manage(ClipboardGuard::default());
+            app.manage(Arc::new(SyncState::default()));
             // The daemon is the only holder of the master key: headless
             // entrypoints talk to it over an owner-only local socket.
             match daemon::start(Arc::clone(&runtime)) {
@@ -148,6 +176,7 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             tray::install(app.handle())?;
+            backup::spawn_scheduler(Arc::clone(&runtime), app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())?;

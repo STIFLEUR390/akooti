@@ -11,7 +11,7 @@ recette manuelle dans le binaire réel est dans
 
 | Niveau | Ce qu'il prouve | Outils | Exécution |
 | ------ | --------------- | ------ | --------- |
-| **Unitaire / intégration Rust** | Le métier est correct et étanche : crypto, DAO, jetons, audit, passkeys, importateurs, pont natif | `cargo test` (164 tests) | local + CI |
+| **Unitaire / intégration Rust** | Le métier est correct et étanche : crypto, DAO, jetons, audit, passkeys, importateurs, santé du coffre, pont natif | `cargo test` (191 tests) | local + CI |
 | **Unitaire TypeScript** | Le formatage, les modèles partagés, le client IPC, le mode démo de l'UI et l'extension (pont, DOM, WebAuthn) | `bun test` (148 tests) | local + CI |
 | **Recette manuelle pilotée** | L'application réelle se comporte comme annoncé, accessibilité comprise | pont MCP Tauri, `axe-core` | à chaque fin de phase |
 
@@ -77,6 +77,10 @@ Deux conséquences pratiques :
 | Jetons MCP | secret affiché une fois, refus inconnu / révoqué / expiré, cloisonnement par dossier | `src/mcp/token.rs`, `tests/mcp_access_test.rs` |
 | Opérations MCP | plan d'injection, compte éphémère + TTL, `exec_env`, audit sans valeur | `tests/mcp_access_test.rs` |
 | Passkeys | signature ES256 vérifiée par une implémentation indépendante, `authData \|\| SHA-256(clientDataJSON)`, compteur croissant, clé relue après verrouillage, `rpId` rattaché à l'origine, refus sans `blind_fill`, assertion sans credential listé | `src/passkeys.rs`, `tests/passkey_test.rs` |
+| Réversibilité | instantané `.akooti` écrit puis restauré, refus d'écrasement implicite, JSON en clair refusé sans le mot de passe maître, export sans jeton MCP | `tests/backup_test.rs` |
+| Synchronisation | charge utile opaque (titre et mot de passe absents du chiffré), application croisée entre deux appareils partageant la clé, LWW strictement plus ancien ignoré, tombstones propagées, AAD refusant une ligne déplacée | `tests/sync_test.rs` |
+| Sauvegardes | cible locale chiffrée, configuration jamais renvoyée, planification due, historique, rétention par époque | `tests/backup_test.rs` |
+| Santé | score zxcvbn persisté, préfixe SHA-1 à 5 caractères, réutilisation, ancienneté, comparaison de suffixes HIBP (marquage puis effacement), rapport sans secret même via `Debug` | `src/health.rs`, `tests/health_test.rs` |
 
 ### 4.2 `akooti-ipc` — le protocole local
 
@@ -111,6 +115,8 @@ Deux conséquences pratiques :
 | Daemon | handshake et capacités annoncées (dont `passkey_ceremony`), correspondance erreur → code stable | `src/daemon/mod.rs` |
 | Daemon — cérémonie WebAuthn | enregistrement puis signature sans socket, refus d'une connexion `mcp` (audit `access_denied`), refus d'une origine étrangère, base64url invalide refusé avant le coffre, aucune valeur d'audit ne contient un credential | `src/daemon/mod.rs` |
 | DTO | sérialisation camelCase attendue par le frontend | `src/dto.rs` |
+| Synchronisation | conversion epoch ↔ ISO-8601, encodage des curseurs, page de delta, refus d'un login rejeté, URL Realtime `https→wss`, signature SigV4 stable | `src/sync/*.rs`, `src/backup/mod.rs` |
+| Santé | parseur HIBP (padding à zéro, lignes invalides, CRLF), export CSV échappé, progression émise par phase | `src/commands/health.rs` |
 | Biométrie | état exposé, aucun fournisseur branché | `src/biometrics.rs` |
 
 ### 4.5 TypeScript

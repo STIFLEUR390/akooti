@@ -197,6 +197,21 @@ pub(crate) fn passkey_aad(credential_id: &[u8]) -> Vec<u8> {
     format!("akooti:v1:passkey:{}", hex::encode(credential_id)).into_bytes()
 }
 
+/// Associated data of a backup target configuration.
+pub(crate) fn backup_config_aad(target_id: &str) -> Vec<u8> {
+    format!("akooti:v1:backup-target:{target_id}").into_bytes()
+}
+
+/// Associated data of the Supabase session (access and refresh tokens).
+pub(crate) fn sync_session_aad() -> Vec<u8> {
+    b"akooti:v1:sync-session".to_vec()
+}
+
+/// Associated data of one synced record, bound to its type and identifier.
+pub(crate) fn sync_record_aad(record_type: &str, id: &str) -> Vec<u8> {
+    format!("akooti:v1:sync:{record_type}:{id}").into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

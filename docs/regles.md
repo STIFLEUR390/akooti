@@ -30,6 +30,8 @@ fixtures, à la documentation et aux messages de commit.
 | SEC-8 | **Nettoyage post-import.** L'effacement du fichier source en clair est proposé après chaque import, exécuté seulement si la transaction est validée, et n'annule jamais un import déjà commité. |
 | SEC-9 | **Pas de secret en clair hors du coffre.** Pas de secret dans un log, un message d'erreur, une capture, une fixture commitée, un ticket ou une PR. |
 | SEC-10 | **Exception documentée.** Un secret TOTP de moins de 128 bits est accepté (les services réels en émettent) ; le décodage Base32 reste le seul refus. Voir [ADR 0007](./adr/0007-fills-et-secrets-totp-courts.md). |
+| SEC-12 | **Cloud aveugle.** Ce qui part chez Supabase se limite à `ciphertext`, `nonce`, `record_type`, `client_updated_at`, `is_deleted`, `version` et à l'enveloppe publique du coffre. Les jetons MCP, le journal d'audit et la configuration de sauvegarde ne sont jamais synchronisés ni exportés (AI-5). |
+| SEC-11 | **Egress minimal.** La seule requête réseau du coffre est la vérification HIBP, déclenchée par un geste explicite : elle n'envoie que les 5 premiers caractères du SHA-1, jamais deux fois le même préfixe dans la même journée (cache mémoire) et jamais autre chose (ni identifiant, ni URL, ni nombre d'entrées). Les suffixes sont comparés localement. |
 
 ---
 
@@ -111,14 +113,15 @@ document de recette ([desktop-tests.md](./desktop-tests.md),
 
 | Phase | Contenu                                                                                     | Statut |
 | ----- | ------------------------------------------------------------------------------------------- | ------ |
-| 0     | Fondations : monorepo Rust + Bun, CI, conventions, schémas, bridge MCP Tauri                 | ✅     |
-| 1     | Cryptographie et stockage chiffré : Argon2id, XChaCha20, SQLCipher, dossiers, session         | ✅     |
-| 2     | Fonctions du coffre : générateur, TOTP, routage `Dev Local`                                  | ✅     |
-| 3     | Importateurs universels et hygiène post-import                                               | ✅     |
-| 4     | Application desktop Tauri v2 : interface du coffre, accessibilité                            | ✅     |
-| 5     | Pont IA : CLI multi-modes, daemon IPC, serveur MCP, jetons cloisonnés, audit, `SKILL.md`      | ✅     |
-| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                   | ✅     |
-| 7+    | Synchronisation Supabase E2EE, sauvegardes planifiées, santé du coffre                        | 🧭     |
+| 0     | Fondations : monorepo Rust + Bun, CI, conventions, schémas, bridge MCP Tauri                | ✅      |
+| 1     | Cryptographie et stockage chiffré : Argon2id, XChaCha20, SQLCipher, dossiers, session       | ✅      |
+| 2     | Fonctions du coffre : générateur, TOTP, routage `Dev Local`                                 | ✅      |
+| 3     | Importateurs universels et hygiène post-import                                              | ✅      |
+| 4     | Application desktop Tauri v2 : interface du coffre, accessibilité                           | ✅      |
+| 5     | Pont IA : CLI multi-modes, daemon IPC, serveur MCP, jetons cloisonnés, audit, `SKILL.md`    | ✅      |
+| 6     | Extension WXT multi-navigateurs, Native Messaging, passkeys                                 | ✅      |
+| 7     | Santé du coffre : zxcvbn, réutilisation, HIBP k-Anonymity, tableau de bord                  | ✅      |
+| 8+    | Synchronisation Supabase E2EE, sauvegardes planifiées, export d'urgence                     | 🧭      |
 
 ---
 
@@ -132,6 +135,7 @@ document de recette ([desktop-tests.md](./desktop-tests.md),
 | SEC-5        | Aucun code réseau dans `akooti-core` : à vérifier en revue lors de l'ajout de la sync               |
 | SEC-6, ARCH-4 | `crates/akooti-ipc` : tests de cadrage, de plafond et de socket ; trames dorées côté TypeScript      |
 | SEC-7        | `crates/akooti-core/src/mcp/token.rs` (SHA-256, comparaison en temps constant, préfixe d'affichage) |
+| SEC-11       | `src-tauri/src/commands/health.rs` : seul egress, préfixes de 5 caractères, cache mémoire ; comparaison des suffixes dans `crates/akooti-core/src/health.rs` (`tests/health_test.rs`) |
 | DATA-1..DATA-6 | Tests DAO : `tests/vault_flow.rs`, `tests/phase2_vault_test.rs`, `tests/routing_test.rs`          |
 | DATA-7       | `src/db.rs` : migration idempotente vérifiée par test                                               |
 | ARCH-1       | Absence de dépendance Tauri dans `crates/akooti-core/Cargo.toml` + `cargo test -p akooti-core` seul |

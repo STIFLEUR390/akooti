@@ -292,6 +292,24 @@ export function Sidebar({
           <Icon name="bot" />
           <span className="nav-item__label">Accès IA</span>
         </button>
+        <button
+          type="button"
+          className={screen === "health" ? "nav-item nav-item--active" : "nav-item"}
+          onClick={() => onScreen("health")}
+          aria-current={screen === "health" ? "page" : undefined}
+        >
+          <Icon name="shield" />
+          <span className="nav-item__label">Santé</span>
+        </button>
+        <button
+          type="button"
+          className={screen === "sync" ? "nav-item nav-item--active" : "nav-item"}
+          onClick={() => onScreen("sync")}
+          aria-current={screen === "sync" ? "page" : undefined}
+        >
+          <Icon name="refresh" />
+          <span className="nav-item__label">Sync &amp; sauvegardes</span>
+        </button>
       </div>
 
       <footer className="sidebar__footer">

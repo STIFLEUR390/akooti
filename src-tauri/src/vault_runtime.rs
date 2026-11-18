@@ -21,6 +21,12 @@ impl VaultRuntime {
         }
     }
 
+    /// Paths the runtime is bound to.
+    #[must_use]
+    pub fn paths(&self) -> &VaultPaths {
+        &self.paths
+    }
+
     /// Reports whether a vault file already exists on disk.
     pub fn is_initialized(&self) -> bool {
         self.paths.header.is_file() && self.paths.database.is_file()
