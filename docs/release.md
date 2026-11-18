@@ -56,7 +56,23 @@ Sorties :
 
 Sans la variable de signature, le build de bundle échoue dès qu'il doit signer
 un artefact de mise à jour : c'est volontaire (pas de release silencieusement
-non signée).
+non signée). Le workflow de release désactive ces artefacts quand le secret est
+absent.
+
+**Fedora (local)** : le CLI Tauri ne trouve pas la bibliothèque appindicator
+(seul le `.so.1` runtime est installé, sans en-tête de développement). Créer un
+shim `pkg-config` et deux liens symboliques vers `/lib64` :
+
+```bash
+mkdir -p /tmp/appindicator-lib /tmp/pkgconfig
+ln -sf /lib64/libayatana-appindicator3.so.1 /tmp/appindicator-lib/libayatana-appindicator3.so
+ln -sf /lib64/libayatana-appindicator3.so.1 /tmp/appindicator-lib/libayatana-appindicator3.so.1
+# /tmp/pkgconfig/ayatana-appindicator3-0.1.pc : libdir=/tmp/appindicator-lib, Libs: -layatana-appindicator3
+PKG_CONFIG_PATH=/tmp/pkgconfig bun run tauri build
+```
+
+Sur Ubuntu (CI), `libayatana-appindicator3-dev` fournit tout ; le shim n'est
+qu'un dépannage local.
 
 ## 4. Publier
 

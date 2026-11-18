@@ -416,7 +416,15 @@ sauvegarde locale, jeton MCP cloisonné. Les échecs écrivent une capture dans
 `artifacts/e2e/` et le job CI les publie. Job nocturne :
 [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml).
 
-### 10.4 Mises à jour
+### 10.4 Packaging
+
+| Artefact | Vérification |
+| -------- | ------------ |
+| Binaire | `target/release/akooti` : 19,6 Mo (< 20 Mo hors WebView système) |
+| `.deb` | 8,59 Mio ; `control` : `Depends: libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0` ; entrée `.desktop` et icônes hicolor ; signature `.sig` |
+| AppImage | 116 Mio (WebKit embarqué) ; signature `.sig` ; `latest.json` généré pour le canal de mise à jour |
+
+### 10.5 Mises à jour
 
 « Vérifier les mises à jour » interroge le manifeste signé et affiche un message
 lisible quand aucune release n'est publiée : « Impossible de vérifier les mises
