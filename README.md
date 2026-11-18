@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" width="96" height="96" alt="Logo Akooti" />
+</p>
+
 # Akooti
 
 > **Le coffre-fort local-first pensé pour les agents IA.**
@@ -196,6 +200,10 @@ akooti/
 
 ## Modèle de sécurité
 
+Le détail (actifs, adversaires, risques résiduels) est dans
+[`docs/threat-model.md`](./docs/threat-model.md) ; les vulnérabilités se
+signalent en privé via [`SECURITY.md`](./SECURITY.md).
+
 | Menace                                               | Contre-mesure                                                                                                                              |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | LLM qui lit un secret                                | Les tools MCP ne renvoient que des métadonnées ; l'injection est aveugle                                                                   |
@@ -271,6 +279,14 @@ Exemple de configuration client :
 
 ### Installation
 
+Depuis une release (recommandé) : télécharger le bundle de votre plateforme
+(`.deb`/`.AppImage`, `.dmg`, `.msi`/NSIS) sur
+[les releases](https://github.com/STIFLEUR390/akooti/releases), puis suivre
+[`docs/guides/install.md`](./docs/guides/install.md) (premier lancement,
+création du coffre, restauration d'un instantané).
+
+Depuis les sources :
+
 ```bash
 git clone https://github.com/STIFLEUR390/akooti.git
 cd akooti
@@ -288,6 +304,8 @@ bun run --filter @akooti/extension dev   # Extension WXT (HMR)
 bun run --filter @akooti/extension build # Build multi-navigateurs
 cargo test --workspace         # Tests unitaires du cœur métier
 cargo clippy --workspace --all-targets
+bun scripts/e2e/app.e2e.mjs    # Parcours E2E sur l'app réelle (bridge MCP)
+bun run tauri build            # Bundles + artefacts de mise à jour (clé requise)
 ```
 
 ### Modes du binaire
@@ -357,7 +375,8 @@ vivent dans un fichier local non versionné, jamais dans ce README.
 | **5 — Pont IA**                  | CLI multi-modes, daemon IPC `0600`, serveur MCP stdio (6 outils), jetons cloisonnés, audit, `SKILL.md`, CDP & `vault_exec`                                                                          | ✅   |
 | **6 — Extension & passkeys**     | Extension WXT multi-navigateurs, pont Native Messaging, `vaultExtensionFill`, popup (remplissage, copie, capture), shim WebAuthn `world: MAIN`, authentificateur côté coffre (ES256, `fmt: "none"`) | ✅   |
 | **7 — Santé du coffre**          | Audit local `zxcvbn` (score, réutilisation, ancienneté), vérification HIBP _k-Anonymity_ sur action explicite, tableau de bord et export CSV                                                        | ✅   |
-| **8+ — Sync & réversibilité**    | Sync Supabase E2EE, sauvegardes planifiées (local / S3 / Drive), export d'urgence                                                                                                                   | 🧭   |
+| **8 — Sync & réversibilité**     | Sync Supabase E2EE (RLS, Realtime, LWW, tombstones), sauvegardes planifiées local / S3 / Drive, export d'urgence et restauration `.akooti`                                                          | ✅   |
+| **9 — Release v1.0**             | Threat model et revue de sécurité, packaging et mises à jour signées, tests E2E, documentation utilisateur, tag `v1.0.0`                                                                            | ✅   |
 
 Le détail exécutable vit dans le projet Kaneo **AKO — Akooti** ; le périmètre
 fonctionnel avec les statuts est dans
@@ -372,6 +391,12 @@ fonctionnel avec les statuts est dans
 - [`docs/schema.md`](./docs/schema.md) — schéma SQLCipher local et conception Supabase E2EE
 - [`docs/testing.md`](./docs/testing.md) — stratégie de test, couverture des contrats critiques, CI
 - [`docs/desktop-tests.md`](./docs/desktop-tests.md) — plan de recette manuelle piloté par le pont MCP Tauri
+- [`docs/threat-model.md`](./docs/threat-model.md) — actifs, adversaires, frontières de confiance, risques résiduels
+- [`docs/security-review.md`](./docs/security-review.md) — revue de sécurité 1.0 : constats, correctifs, tests
+- [`docs/release.md`](./docs/release.md) — versions, clés de signature, canal de mise à jour, checklist
+- [`docs/guides/`](./docs/guides/) — installation, configuration MCP par client, Supabase, S3, Google Drive, FAQ
+- [`SECURITY.md`](./SECURITY.md) — signalement privé des vulnérabilités et engagement de réponse
+- [`CHANGELOG.md`](./CHANGELOG.md) — historique des versions
 - [`docs/adr/`](./docs/adr/) — décisions d'architecture datées (monorepo, stockage, transport, remplissage, pont navigateur)
 
 ## Contribuer

@@ -7,6 +7,7 @@ import { Icon } from "../components/Icons";
 import { ItemDetail } from "../components/ItemDetail";
 import { ItemFormModal } from "../components/ItemFormModal";
 import { ItemList } from "../components/ItemList";
+import { OnboardingModal } from "../components/OnboardingModal";
 import { SecretEditorModal } from "../components/SecretEditorModal";
 import { Sidebar } from "../components/Sidebar";
 import { Toasts } from "../components/Toasts";
@@ -17,6 +18,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useTotp } from "../hooks/useTotp";
 import { useVaultData } from "../hooks/useVaultData";
 import type { AkootiApi, BuildInfo, PasswordOptions } from "../lib/ipc";
+import { toIpcError } from "../lib/ipc";
 import { HealthPage } from "./HealthPage";
 import { ImportPage } from "./ImportPage";
 import { McpPage } from "./McpPage";
@@ -35,6 +37,9 @@ interface VaultPageProps {
 
 /** No folder is shared with an MCP token yet (phase 5 fills this). */
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+
+/** First-run guide flag, per machine. */
+const GUIDE_KEY = "akooti.onboarding.seen";
 
 type ModalState =
   | { kind: "none" }
@@ -72,6 +77,12 @@ export function VaultPage({
   const vault = useVaultData(api, notices, onLock);
   const secrets = useSecretReveal(api, notices);
   const [modal, setModal] = useState<ModalState>({ kind: "none" });
+  const [guideOpen, setGuideOpen] = useState(() => {
+    if (typeof localStorage === "undefined") {
+      return false;
+    }
+    return localStorage.getItem(GUIDE_KEY) !== "seen";
+  });
   const searchRef = useRef<HTMLInputElement>(null);
 
   const selected = vault.selected;
@@ -93,6 +104,15 @@ export function VaultPage({
       : (vault.folders.find((folder) => folder.id === vault.activeFolderId)?.name ?? null);
 
   const closeModal = useCallback(() => setModal({ kind: "none" }), []);
+
+  const closeGuide = useCallback(() => {
+    try {
+      localStorage.setItem(GUIDE_KEY, "seen");
+    } catch {
+      // Private browsing: the guide reappears next launch, nothing is lost.
+    }
+    setGuideOpen(false);
+  }, []);
 
   const copyTotp = useCallback(() => {
     if (totp.code) {
@@ -154,6 +174,24 @@ export function VaultPage({
         buildInfo={buildInfo}
         autoLockMinutes={autoLockMinutes}
         sharedFolderIds={EMPTY_SET}
+        onOpenGuide={() => setGuideOpen(true)}
+        onCheckUpdate={() => {
+          void (async () => {
+            try {
+              const update = await api.checkUpdate();
+              if (!update) {
+                notices.success("Akooti est à jour.");
+                return;
+              }
+              notices.success(`Mise à jour ${update.version} disponible.`);
+              if (window.confirm(`Installer Akooti ${update.version} puis redémarrer ?`)) {
+                await api.installUpdate();
+              }
+            } catch (error) {
+              notices.failure(toIpcError(error).message);
+            }
+          })();
+        }}
       />
 
       <main className="content">
@@ -299,6 +337,20 @@ export function VaultPage({
           generatePassphrase={api.generatePassphrase}
           onCopy={(value, label) => {
             void secrets.copy(value, label);
+          }}
+        />
+      ) : null}
+
+      {guideOpen ? (
+        <OnboardingModal
+          onClose={closeGuide}
+          onCreateItem={() => {
+            closeGuide();
+            setModal({ kind: "create" });
+          }}
+          onOpenScreen={(screen) => {
+            closeGuide();
+            vault.setScreen(screen);
           }}
         />
       ) : null}

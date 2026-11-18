@@ -847,6 +847,14 @@ export function createMockApi(): AkootiApi {
       return null;
     },
 
+    async checkUpdate(): Promise<null> {
+      return null;
+    },
+
+    async installUpdate(): Promise<void> {
+      throw new IpcError("update", "Le mode démonstration ne peut pas installer de mise à jour.");
+    },
+
     async listRoutingRules(): Promise<RoutingRule[]> {
       requireUnlocked();
       return state.rules;

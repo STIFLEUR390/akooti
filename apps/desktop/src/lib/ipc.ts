@@ -373,6 +373,13 @@ export interface BackupStatusEvent {
   status: string;
 }
 
+/** An update offered by the release manifest. */
+export interface UpdateInfo {
+  currentVersion: string;
+  version: string;
+  notes: string | null;
+}
+
 /** Written export receipt. */
 export interface ExportReceipt {
   path: string;
@@ -452,6 +459,11 @@ export interface AkootiApi {
   exportSnapshot(): Promise<ExportReceipt | null>;
   exportPlaintext(password: string): Promise<ExportReceipt | null>;
   restoreSnapshot(): Promise<string | null>;
+
+  /** Asks the release manifest for a newer version; null when up to date. */
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** Downloads, verifies and installs the pending update (restarts the app). */
+  installUpdate(): Promise<void>;
 
   listRoutingRules(): Promise<RoutingRule[]>;
   addRoutingRule(rule: NewRoutingRuleInput): Promise<RoutingRule>;
@@ -665,6 +677,9 @@ export const tauriApi: AkootiApi = {
   exportSnapshot: () => call("export_snapshot"),
   exportPlaintext: (password) => call("export_plaintext", { password }),
   restoreSnapshot: () => call("restore_snapshot"),
+
+  checkUpdate: () => call("check_update"),
+  installUpdate: () => call("install_update"),
 
   listRoutingRules: () => call("list_routing_rules"),
   addRoutingRule: (rule) => call("add_routing_rule", { rule }),

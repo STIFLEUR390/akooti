@@ -15,7 +15,10 @@ détail.
 | [schema.md](./schema.md)                 | Schéma SQLCipher local (source de vérité) et conception Supabase E2EE     | on modifie une table, une migration ou la sync      |
 | [testing.md](./testing.md)               | Stratégie de test, couverture des contrats critiques, règles de fixtures  | on ajoute un test ou on cherche où couvrir quoi     |
 | [desktop-tests.md](./desktop-tests.md)   | Plan de recette manuelle piloté par le pont MCP Tauri                     | on valide une phase dans le binaire réel            |
-| [guides/](./guides/)                     | Guides utilisateur : Supabase, S3, Google Drive                            | on configure une sauvegarde ou la synchronisation   |
+| [threat-model.md](./threat-model.md)     | Actifs, adversaires, frontières de confiance, risques résiduels           | on évalue une nouveauté ou une faille               |
+| [security-review.md](./security-review.md) | Revue 9.1 : constats, correctifs, tests de non-fuite                      | on prépare une release ou une réponse à un rapport  |
+| [release.md](./release.md)               | Versions, clés de signature, canal de mise à jour, checklist              | on publie une version                               |
+| [guides/](./guides/)                     | Guides utilisateur : installation, clients MCP, Supabase, S3, Drive, FAQ  | on installe, configure ou cherche une limite        |
 | [adr/](./adr/README.md)                  | Décisions d'architecture datées, avec contexte et conséquences            | une décision structurante est prise ou contestée    |
 
 ## Parcours de lecture

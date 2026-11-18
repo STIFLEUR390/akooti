@@ -76,9 +76,16 @@ body {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
+}
+
+.brand__logo {
+  border-radius: 6px;
 }
 
 .pill {

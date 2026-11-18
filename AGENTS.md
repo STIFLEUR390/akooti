@@ -43,10 +43,13 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   `commands/health.rs` is the HIBP egress: `range/{prefix}`, explicit gesture, in-memory
   cache, `health:progress` events. `sync/` holds the Supabase REST + Realtime clients,
   `backup/` the local/S3 SigV4/Drive drivers and the hourly scheduler; `commands/sync.rs`,
-  `commands/backup.rs` and `commands/export.rs` are the IPC surface.
+  `commands/backup.rs`, `commands/export.rs` and `commands/updates.rs` are the IPC surface.
+  The updater is Ed25519-signed (`plugins.updater.pubkey`); the private key stays outside
+  the repo. Drive and the bridge have debug-only test overrides — never compiled in release.
 - `apps/desktop` — React/Vite UI. `lib/ipc.ts` is the typed command bridge with an in-memory
   mock used outside Tauri; `hooks/`, `components/`, `pages/` cover unlock, vault, generator,
-  import, routing, the AI access page, the vault health dashboard and sync/backups.
+  import, routing, the AI access page, the vault health dashboard, sync/backups and a
+  first-run onboarding guide (localStorage flag, reopenable from the sidebar).
   `apps/extension` is WXT: service worker
   (`entrypoints/background.ts`, the only bridge client), popup (React), content script,
   `lib/dom` heuristics and a MAIN-world WebAuthn shim injected by an ISOLATED script.
@@ -57,7 +60,9 @@ Rust workspace (`crates/*`, `src-tauri`) + Bun workspace (`apps/*`, `packages/*`
   rules, `docs/architecture.md` processes/flows/contracts, `docs/testing.md` coverage,
   `docs/desktop-tests.md` the manual recipe, `docs/adr/` the decisions. Still design-only:
   the Rust WebAuthn authenticator (the shim intercepts, then
-  falls back to the browser), and Windows (named pipe + registry manifest).
+  falls back to the browser), Windows (named pipe + registry manifest), macOS
+  notarization / Windows signing, and the Google Drive real-account recipe (the driver is
+  validated against the gfeh API v3 emulator). Version is 1.0.0; releases are tagged `vX.Y.Z`.
   Verify against `src/` before assuming; the code wins.
 
 ## Commands
@@ -72,6 +77,8 @@ bun run lint                    # ESLint flat config, ignores src-tauri/**
 bun run format:check            # Prettier; ignores docs/ and bun.lock
 bun run typecheck               # wxt prepare (extension), then tsc per package
 bun test                        # bun:test, run from the repo root
+bun scripts/e2e/app.e2e.mjs      # E2E on the real app (needs a running debug build)
+bun run tauri build              # bundles; TAURI_SIGNING_PRIVATE_KEY signs updater artifacts
 bun test packages/shared/src/models.test.ts          # one TS suite
 cargo test -p akooti-core --locked                   # fast core feedback
 cargo test -p akooti-core --test import_pipeline_test  # one integration suite

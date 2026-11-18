@@ -41,4 +41,9 @@ export default tseslint.config(
     files: ["**/*.config.{js,ts,mjs}", "eslint.config.js"],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // E2E runner: Bun + WebSocket, no framework globals.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { ...globals.bun, ...globals.node, Bun: "readonly" } },
+  },
 );

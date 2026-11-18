@@ -26,6 +26,8 @@ interface SidebarProps {
   autoLockMinutes: number;
   /** Folders shared with an active MCP token (phase 5); empty for now. */
   sharedFolderIds: ReadonlySet<string>;
+  onCheckUpdate: () => void;
+  onOpenGuide: () => void;
 }
 
 const SYSTEM_ICONS: Record<string, IconName> = {
@@ -61,6 +63,8 @@ export function Sidebar({
   buildInfo,
   autoLockMinutes,
   sharedFolderIds,
+  onCheckUpdate,
+  onOpenGuide,
 }: SidebarProps) {
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -92,7 +96,7 @@ export function Sidebar({
     <nav className="sidebar" aria-label="Navigation du coffre">
       <div className="sidebar__brand">
         <span className="sidebar__logo" aria-hidden="true">
-          <Icon name="shield" size={18} />
+          <img src="/logo.png" alt="" width={30} height={30} />
         </span>
         <h1 className="sidebar__brand-name">Akooti</h1>
       </div>
@@ -313,6 +317,12 @@ export function Sidebar({
       </div>
 
       <footer className="sidebar__footer">
+        <button type="button" className="text-button" onClick={onOpenGuide}>
+          Guide de démarrage
+        </button>
+        <button type="button" className="text-button" onClick={onCheckUpdate}>
+          Vérifier les mises à jour
+        </button>
         <button type="button" className="nav-item" onClick={onLock}>
           <Icon name="lock" />
           <span className="nav-item__label">Verrouiller</span>

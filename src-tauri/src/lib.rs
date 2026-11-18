@@ -77,7 +77,8 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
 
     // Debug-only automation bridge used by the Tauri MCP server. It is compiled
     // out of release builds and only listens on the loopback interface.
@@ -150,6 +151,8 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
             commands::backup::run_backup_now,
             commands::backup::list_backup_runs,
             commands::backup::pick_backup_folder,
+            commands::updates::check_update,
+            commands::updates::install_update,
             commands::export::export_snapshot,
             commands::export::export_plaintext,
             commands::export::restore_snapshot,

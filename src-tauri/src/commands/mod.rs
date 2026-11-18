@@ -16,4 +16,5 @@ pub mod mcp;
 pub mod routing;
 pub mod sync;
 pub mod system;
+pub mod updates;
 pub mod vault;

@@ -1,0 +1,77 @@
+name: E2E
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Parcours critiques (Linux, Xvfb)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Tauri and Xvfb system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file pkg-config \
+            xvfb xauth dbus-x11
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Launch the app on a throwaway profile
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x1024x24 &
+          sleep 1
+          mkdir -p "$RUNNER_TEMP/akooti-e2e"
+          setsid env \
+            XDG_DATA_HOME="$RUNNER_TEMP/akooti-e2e" \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            bun run tauri dev > "$RUNNER_TEMP/tauri-e2e.log" 2>&1 < /dev/null &
+          for _ in $(seq 1 90); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9223) 2>/dev/null; then
+              echo "bridge ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "bridge never opened"; tail -50 "$RUNNER_TEMP/tauri-e2e.log"; exit 1
+
+      - name: Run scenarios
+        run: bun scripts/e2e/app.e2e.mjs
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failures
+          path: artifacts/e2e
+          if-no-files-found: ignore
+
+      - name: App log on failure
+        if: failure()
+        run: tail -200 "$RUNNER_TEMP/tauri-e2e.log"

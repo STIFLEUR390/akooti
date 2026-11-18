@@ -197,7 +197,10 @@ export function App() {
   return (
     <div className="popup">
       <header className="toolbar">
-        <span className="brand">Akooti</span>
+        <span className="brand">
+          <img src="/icon/48.png" alt="" width={20} height={20} className="brand__logo" />
+          Akooti
+        </span>
         <span className={`pill pill--${pill.tone}`}>{pill.label}</span>
       </header>
 

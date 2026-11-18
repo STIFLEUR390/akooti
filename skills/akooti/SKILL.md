@@ -28,7 +28,13 @@ only get back which fields were filled or masked command output.
 ```
 
 The secret is only a handle: it is scoped to folders and actions, it expires,
-and the user can revoke it at any time. The Akooti daemon must be running (the
+and the user can revoke it at any time. Client-by-client configuration
+(Claude Code, Codex, Cursor, OpenCode) is in
+[`docs/guides/mcp-clients.md`](../../docs/guides/mcp-clients.md).
+
+Tested with OpenCode on 2026-11-18 against a throwaway vault: `vault_status`,
+`vault_search`, folder isolation and the refusal codes below behaved as
+documented. The Akooti daemon must be running (the
 desktop app unlocked) — otherwise every call fails with `daemon_unavailable`.
 
 ## Tools

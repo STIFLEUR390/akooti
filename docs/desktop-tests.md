@@ -384,7 +384,46 @@ politiques RLS apparaissent dans le résultat de vérification).
 
 Chemin non couvert faute de compte réel : Google Drive sur un vrai compte (OAuth, quotas) ; le pilote est validé contre un émulateur d'API v3.
 
-## 9. Grille à recopier pour une nouvelle phase
+## 10. Phase 9 — durcissement, packaging et E2E
+
+### 10.1 Sécurité
+
+| Contrôle | Résultat |
+| -------- | -------- |
+| CSP stricte (`default-src 'self'`, `script-src 'self'`) | appliquée, styles et IPC fonctionnels, aucune erreur console |
+| `clipboard-manager:allow-read-text` retiré | capability relue, aucune lecture du presse-papiers dans l'UI |
+| Overrides Drive et bridge MCP | compilés uniquement en debug |
+| Scopes MCP | refus typés vérifiés par `tests/mcp_access_test.rs` |
+| Revue 9.1 | [`security-review.md`](./security-review.md) : aucun constat critique ou élevé |
+
+### 10.2 Onboarding
+
+Observé au premier déverrouillage d'un profil neuf : modal « Bienvenue dans
+Akooti », cinq étapes, chaque bouton ouvre l'écran réel, « C'est parti »
+persiste `akooti.onboarding.seen`. Le guide se rouvre par **Guide de démarrage**
+dans la barre latérale (vérifié après rechargement).
+
+### 10.3 E2E pilotés par le pont MCP Tauri
+
+```bash
+XDG_DATA_HOME=/tmp/akooti-e2e bun run tauri dev &
+bun scripts/e2e/app.e2e.mjs
+```
+
+Sept scénarios verts sur un profil neuf (2026-11-18) : création du coffre,
+onboarding, ajout d'entrée, verrouillage/déverrouillage, audit de santé,
+sauvegarde locale, jeton MCP cloisonné. Les échecs écrivent une capture dans
+`artifacts/e2e/` et le job CI les publie. Job nocturne :
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml).
+
+### 10.4 Mises à jour
+
+« Vérifier les mises à jour » interroge le manifeste signé et affiche un message
+lisible quand aucune release n'est publiée : « Impossible de vérifier les mises
+à jour (réseau ou aucune release publiée). » La clé publique Ed25519 est dans
+`tauri.conf.json`, la privée hors dépôt (voir [`release.md`](./release.md)).
+
+## 11. Grille à recopier pour une nouvelle phase
 
 ```text
 Phase :            …            Date : …            OS / WebKit : …
@@ -403,7 +442,7 @@ Fuites : sortie de l'hôte, console du worker, stockage local, ligne d'audit …
 Défauts trouvés : … (chacun devient un correctif + un test)
 ```
 
-## 10. Ce que cette recette ne couvre pas
+## 12. Ce que cette recette ne couvre pas
 
 | Sujet | Raison | Suivi |
 | ----- | ------ | ----- |

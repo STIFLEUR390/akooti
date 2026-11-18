@@ -76,7 +76,7 @@ export function UnlockPage({
       <div className="unlock__panel">
         <header className="unlock__brand">
           <span className="unlock__logo" aria-hidden="true">
-            <Icon name="shield" size={22} />
+            <img src="/logo.png" alt="" width={44} height={44} />
           </span>
           <div>
             <h1>Akooti</h1>

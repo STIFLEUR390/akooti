@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Akooti",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.akooti.desktop",
   "build": {
     "beforeDevCommand": "bun run --filter @akooti/desktop dev",
@@ -23,7 +23,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:",
+      "devCsp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     }
   },
   "plugins": {
@@ -57,6 +58,10 @@
           "description": "Serves the browser Native Messaging bridge on stdio"
         }
       }
+    },
+    "updater": {
+      "endpoints": ["https://github.com/STIFLEUR390/akooti/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4RjMxQjRFQTU0NjQyOUQKUldTZFFrYWxUaHZ6aUJMUnRrMEk4WXBMbzdrOGFDMkIxdFFISXJKRHc2cUtpc1Mvdk9wZXpUaFYK"
     }
   },
   "bundle": {
@@ -68,6 +73,13 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Utility",
+    "shortDescription": "Local-first password vault for AI agents",
+    "longDescription": "Akooti is a local-first, zero-knowledge password vault for AI agents: SQLCipher storage, blind fills over CDP, scoped MCP tokens, encrypted sync, scheduled backups and emergency export.",
+    "copyright": "Copyright © 2026 Akooti contributors",
+    "publisher": "Akooti",
+    "license": "MIT",
+    "createUpdaterArtifacts": true
   }
 }
