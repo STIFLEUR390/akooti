@@ -42,6 +42,18 @@ jobs:
             build-essential \
             curl wget file pkg-config
 
+      # SQLCipher has no system crypto provider on Windows: libsqlite3-sys
+      # links OpenSSL explicitly. Static libs with the dynamic CRT match Rust's
+      # -MD and keep libcrypto out of the bundle's runtime dependencies.
+      - name: Windows OpenSSL for SQLCipher
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          vcpkg install openssl:x64-windows-static-md
+          $prefix = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          "OPENSSL_LIB_DIR=$prefix\lib" >> $env:GITHUB_ENV
+          "OPENSSL_INCLUDE_DIR=$prefix\include" >> $env:GITHUB_ENV
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -59,15 +71,31 @@ jobs:
 
       # Signing is optional for a dry run: without the secret, the updater
       # artifacts are turned off so the build does not fail on a missing key.
+      # An unset secret is still exported as an empty variable, and the Tauri
+      # bundler then imports an empty certificate and notarizes with blank
+      # credentials, so only real Apple secrets are forwarded.
       - name: Signing flags
         id: signing
         shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
             echo 'config=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
           else
             echo 'config=--config {"bundle":{"createUpdaterArtifacts":false}}' >> "$GITHUB_OUTPUT"
           fi
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!name}" ]; then
+              { echo "$name<<EOF"; printf '%s\n' "${!name}"; echo EOF; } >> "$GITHUB_ENV"
+            fi
+          done
 
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
@@ -75,12 +103,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Akooti ${{ github.ref_name }}"
