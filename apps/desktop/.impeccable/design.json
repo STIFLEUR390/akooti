@@ -1,0 +1,512 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-18T18:05:29.218Z",
+  "title": "Design System: Akooti Desktop",
+  "extensions": {
+    "colorMeta": {
+      "bg-app": {
+        "role": "neutral",
+        "displayName": "Instrument Void",
+        "canonical": "#0b0f14",
+        "purpose": "The outermost plane; the app background.",
+        "tonalRamp": [
+          "oklch(16.0% 0.004 254.2)",
+          "oklch(27.1% 0.007 254.2)",
+          "oklch(38.3% 0.009 254.2)",
+          "oklch(49.4% 0.011 254.2)",
+          "oklch(60.6% 0.011 254.2)",
+          "oklch(71.7% 0.009 254.2)",
+          "oklch(82.9% 0.007 254.2)",
+          "oklch(94.0% 0.004 254.2)"
+        ]
+      },
+      "bg-panel": {
+        "role": "neutral",
+        "displayName": "Panel Plane",
+        "canonical": "#111821",
+        "purpose": "Sidebars, item list, cards, modal bodies.",
+        "tonalRamp": [
+          "oklch(16.0% 0.007 254.9)",
+          "oklch(27.1% 0.011 254.9)",
+          "oklch(38.3% 0.015 254.9)",
+          "oklch(49.4% 0.019 254.9)",
+          "oklch(60.6% 0.019 254.9)",
+          "oklch(71.7% 0.015 254.9)",
+          "oklch(82.9% 0.011 254.9)",
+          "oklch(94.0% 0.007 254.9)"
+        ]
+      },
+      "bg-elevated": {
+        "role": "neutral",
+        "displayName": "Elevated Plane",
+        "canonical": "#151d28",
+        "purpose": "Default button fill, chips, stat tiles, kbd, toasts.",
+        "tonalRamp": [
+          "oklch(16.0% 0.009 256.5)",
+          "oklch(27.1% 0.013 256.5)",
+          "oklch(38.3% 0.018 256.5)",
+          "oklch(49.4% 0.022 256.5)",
+          "oklch(60.6% 0.022 256.5)",
+          "oklch(71.7% 0.018 256.5)",
+          "oklch(82.9% 0.013 256.5)",
+          "oklch(94.0% 0.009 256.5)"
+        ]
+      },
+      "bg-hover": {
+        "role": "neutral",
+        "displayName": "Hover Plane",
+        "canonical": "#1b2532",
+        "purpose": "The universal hover fill.",
+        "tonalRamp": [
+          "oklch(16.0% 0.010 255.2)",
+          "oklch(27.1% 0.015 255.2)",
+          "oklch(38.3% 0.020 255.2)",
+          "oklch(49.4% 0.026 255.2)",
+          "oklch(60.6% 0.026 255.2)",
+          "oklch(71.7% 0.020 255.2)",
+          "oklch(82.9% 0.015 255.2)",
+          "oklch(94.0% 0.010 255.2)"
+        ]
+      },
+      "bg-active": {
+        "role": "neutral",
+        "displayName": "Active Plane",
+        "canonical": "#1f2c3d",
+        "purpose": "Selected row or nav item.",
+        "tonalRamp": [
+          "oklch(16.0% 0.013 255.4)",
+          "oklch(27.1% 0.019 255.4)",
+          "oklch(38.3% 0.026 255.4)",
+          "oklch(49.4% 0.033 255.4)",
+          "oklch(60.6% 0.033 255.4)",
+          "oklch(71.7% 0.026 255.4)",
+          "oklch(82.9% 0.019 255.4)",
+          "oklch(94.0% 0.013 255.4)"
+        ]
+      },
+      "bg-input": {
+        "role": "neutral",
+        "displayName": "Input Well",
+        "canonical": "#0d141c",
+        "purpose": "Recessed field surface.",
+        "tonalRamp": [
+          "oklch(16.0% 0.007 252.2)",
+          "oklch(27.1% 0.011 252.2)",
+          "oklch(38.3% 0.014 252.2)",
+          "oklch(49.4% 0.018 252.2)",
+          "oklch(60.6% 0.018 252.2)",
+          "oklch(71.7% 0.014 252.2)",
+          "oklch(82.9% 0.011 252.2)",
+          "oklch(94.0% 0.007 252.2)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#24303f",
+        "purpose": "Borders, dividers, card outlines at rest.",
+        "tonalRamp": [
+          "oklch(16.0% 0.011 254.3)",
+          "oklch(27.1% 0.017 254.3)",
+          "oklch(38.3% 0.023 254.3)",
+          "oklch(49.4% 0.029 254.3)",
+          "oklch(60.6% 0.029 254.3)",
+          "oklch(71.7% 0.023 254.3)",
+          "oklch(82.9% 0.017 254.3)",
+          "oklch(94.0% 0.011 254.3)"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong",
+        "canonical": "#33455c",
+        "purpose": "Modal frame, active row, toast frame, hover escalation.",
+        "tonalRamp": [
+          "oklch(16.0% 0.016 254.9)",
+          "oklch(27.1% 0.024 254.9)",
+          "oklch(38.3% 0.033 254.9)",
+          "oklch(49.4% 0.041 254.9)",
+          "oklch(60.6% 0.041 254.9)",
+          "oklch(71.7% 0.033 254.9)",
+          "oklch(82.9% 0.024 254.9)",
+          "oklch(94.0% 0.016 254.9)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#e6edf3",
+        "purpose": "Body text and item titles.",
+        "tonalRamp": [
+          "oklch(16.0% 0.004 243.7)",
+          "oklch(27.1% 0.006 243.7)",
+          "oklch(38.3% 0.008 243.7)",
+          "oklch(49.4% 0.010 243.7)",
+          "oklch(60.6% 0.010 243.7)",
+          "oklch(71.7% 0.008 243.7)",
+          "oklch(82.9% 0.006 243.7)",
+          "oklch(94.0% 0.004 243.7)"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "canonical": "#95a3b4",
+        "purpose": "Labels, metadata, nav rest state.",
+        "tonalRamp": [
+          "oklch(16.0% 0.010 253.3)",
+          "oklch(27.1% 0.016 253.3)",
+          "oklch(38.3% 0.021 253.3)",
+          "oklch(49.4% 0.027 253.3)",
+          "oklch(60.6% 0.027 253.3)",
+          "oklch(71.7% 0.021 253.3)",
+          "oklch(82.9% 0.016 253.3)",
+          "oklch(94.0% 0.010 253.3)"
+        ]
+      },
+      "text-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "#7d8fa3",
+        "purpose": "Uppercase section labels, hints, counts, audit targets.",
+        "tonalRamp": [
+          "oklch(16.0% 0.013 251.1)",
+          "oklch(27.1% 0.020 251.1)",
+          "oklch(38.3% 0.026 251.1)",
+          "oklch(49.4% 0.033 251.1)",
+          "oklch(60.6% 0.033 251.1)",
+          "oklch(71.7% 0.026 251.1)",
+          "oklch(82.9% 0.020 251.1)",
+          "oklch(94.0% 0.013 251.1)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#4f8cf7",
+        "purpose": "Active nav bar, primary action, live code, focus ring.",
+        "tonalRamp": [
+          "oklch(16.0% 0.060 260.8)",
+          "oklch(27.1% 0.092 260.8)",
+          "oklch(38.3% 0.124 260.8)",
+          "oklch(49.4% 0.156 260.8)",
+          "oklch(60.6% 0.156 260.8)",
+          "oklch(71.7% 0.124 260.8)",
+          "oklch(82.9% 0.085 260.8)",
+          "oklch(94.0% 0.028 260.8)"
+        ]
+      },
+      "accent-strong": {
+        "role": "primary",
+        "displayName": "Signal Blue Lifted",
+        "canonical": "#6ba1ff",
+        "purpose": "Text-link blue, primary hover, live TOTP digits.",
+        "tonalRamp": [
+          "oklch(16.0% 0.052 260.8)",
+          "oklch(27.1% 0.080 260.8)",
+          "oklch(38.3% 0.108 260.8)",
+          "oklch(49.4% 0.136 260.8)",
+          "oklch(60.6% 0.136 260.8)",
+          "oklch(71.7% 0.108 260.8)",
+          "oklch(82.9% 0.080 260.8)",
+          "oklch(94.0% 0.027 260.8)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Signal Wash",
+        "canonical": "rgba(79, 140, 247, 0.14)",
+        "purpose": "14% wash behind revealed secrets, active steps, avatars."
+      },
+      "accent-contrast": {
+        "role": "primary",
+        "displayName": "Signal Ink",
+        "canonical": "#07121f",
+        "purpose": "The only text colour allowed on solid Signal Blue.",
+        "tonalRamp": [
+          "oklch(16.0% 0.011 253.0)",
+          "oklch(27.1% 0.017 253.0)",
+          "oklch(38.3% 0.023 253.0)",
+          "oklch(49.4% 0.029 253.0)",
+          "oklch(60.6% 0.029 253.0)",
+          "oklch(71.7% 0.023 253.0)",
+          "oklch(82.9% 0.017 253.0)",
+          "oklch(94.0% 0.011 253.0)"
+        ]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Verified Green",
+        "canonical": "#33c48d",
+        "purpose": "Success toasts, strong password cells.",
+        "tonalRamp": [
+          "oklch(16.0% 0.043 162.6)",
+          "oklch(27.1% 0.060 162.6)",
+          "oklch(38.3% 0.081 162.6)",
+          "oklch(49.4% 0.102 162.6)",
+          "oklch(60.6% 0.131 162.6)",
+          "oklch(71.7% 0.105 162.6)",
+          "oklch(82.9% 0.078 162.6)",
+          "oklch(94.0% 0.051 162.6)"
+        ]
+      },
+      "success-soft": {
+        "role": "semantic",
+        "displayName": "Verified Wash",
+        "canonical": "rgba(51, 196, 141, 0.14)",
+        "purpose": "14% wash for success banners."
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "Refusal Red",
+        "canonical": "#f2626b",
+        "purpose": "Destructive actions, form errors, denied audit rows.",
+        "tonalRamp": [
+          "oklch(16.0% 0.062 19.4)",
+          "oklch(27.1% 0.095 19.4)",
+          "oklch(38.3% 0.128 19.4)",
+          "oklch(49.4% 0.161 19.4)",
+          "oklch(60.6% 0.161 19.4)",
+          "oklch(71.7% 0.128 19.4)",
+          "oklch(82.9% 0.095 19.4)",
+          "oklch(94.0% 0.029 19.4)"
+        ]
+      },
+      "danger-soft": {
+        "role": "semantic",
+        "displayName": "Refusal Wash",
+        "canonical": "rgba(242, 98, 107, 0.14)",
+        "purpose": "14% wash for error strips and danger buttons."
+      },
+      "warn": {
+        "role": "semantic",
+        "displayName": "Attention Amber",
+        "canonical": "#e0a63c",
+        "purpose": "Warnings, TOTP countdown, favourites.",
+        "tonalRamp": [
+          "oklch(16.0% 0.044 78.7)",
+          "oklch(27.1% 0.057 78.7)",
+          "oklch(38.3% 0.077 78.7)",
+          "oklch(49.4% 0.096 78.7)",
+          "oklch(60.6% 0.124 78.7)",
+          "oklch(71.7% 0.098 78.7)",
+          "oklch(82.9% 0.073 78.7)",
+          "oklch(94.0% 0.048 78.7)"
+        ]
+      },
+      "warn-soft": {
+        "role": "semantic",
+        "displayName": "Attention Wash",
+        "canonical": "rgba(224, 166, 60, 0.14)",
+        "purpose": "14% wash for warning banners."
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The single h1 of a page: vault name, page title."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Modal titles and detail-pane item titles."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Uppercase card headings. A label, not a reading heading."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All prose, 14px, 60ch cap on page intros."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field names, buttons, chips, micro-metadata."
+      },
+      "mono": {
+        "displayName": "Machine Value",
+        "purpose": "Secrets, TOTP, digests, keycaps."
+      }
+    },
+    "shadows": [
+      {
+        "name": "hairline-highlight",
+        "value": "0 1px 0 rgba(255, 255, 255, 0.03)",
+        "purpose": "A lit top edge on cards, toasts and active segments. Not a cast shadow."
+      },
+      {
+        "name": "overlay-lift",
+        "value": "0 24px 64px rgba(0, 0, 0, 0.55)",
+        "purpose": "Modals, the unlock panel, toasts. Anything above the shell."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state",
+        "value": "120ms ease",
+        "purpose": "Hover and background shifts on buttons, rows, switches."
+      },
+      {
+        "name": "totp",
+        "value": "width 1s linear",
+        "purpose": "The TOTP countdown bar."
+      },
+      {
+        "name": "reduced",
+        "value": "0.01ms !important",
+        "purpose": "Global prefers-reduced-motion override."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "onboarding",
+        "value": "680px",
+        "purpose": "The only explicit media query."
+      }
+    ],
+    "layout": {
+      "shell": "248px sidebar + 340px item list + fluid detail, each rail scrolls itself.",
+      "page": "Maintenance surfaces collapse to one column, capped at 900px.",
+      "prose": "Page intros capped at 60ch.",
+      "grids": "auto-fit minmax: 240px detail cards, 190px form rows, 170px checkboxes, 140px stats."
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single decision point on a surface. One per screen.",
+      "html": "<button class=\"ds-btn-primary\">Déverrouiller le coffre</button>",
+      "css": ".ds-btn-primary {\n  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;\n  padding: .45rem .75rem;\n  border: 1px solid transparent; border-radius: 6px;\n  background: var(--accent, #4f8cf7); color: var(--accent-contrast, #07121f);\n  font: 500 .82rem/1.5 system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif;\n  white-space: nowrap; cursor: pointer;\n  transition: background 120ms ease;\n}\n.ds-btn-primary:hover { background: var(--accent-strong, #6ba1ff); }\n.ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }\n.ds-btn-primary:disabled { opacity: .5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Secondary action: bordered plane, hover is a background shift.",
+      "html": "<button class=\"ds-btn\">Regénérer</button>",
+      "css": ".ds-btn {\n  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;\n  padding: .45rem .75rem;\n  border: 1px solid var(--border, #24303f); border-radius: 6px;\n  background: var(--bg-elevated, #151d28); color: var(--text, #e6edf3);\n  font: 500 .82rem/1.5 system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif;\n  white-space: nowrap; cursor: pointer;\n  transition: background 120ms ease, border-color 120ms ease;\n}\n.ds-btn:hover { background: var(--bg-hover, #1b2532); border-color: var(--border-strong, #33455c); }\n.ds-btn:focus-visible { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "description": "Recessed well with a label above and a hint below.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field__label\">Rechercher</span><input class=\"ds-input\" type=\"search\" placeholder=\"Titre, identifiant, URL\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: .3rem; font: 400 14px/1.5 system-ui, sans-serif; }\n.ds-field__label { font-size: .76rem; font-weight: 550; color: var(--text-muted, #95a3b4); }\n.ds-input {\n  width: 100%; min-width: 0;\n  padding: .5rem .65rem;\n  border: 1px solid var(--border, #24303f); border-radius: 6px;\n  background: var(--bg-input, #0d141c); color: var(--text, #e6edf3);\n  font: inherit;\n}\n.ds-input::placeholder { color: var(--text-faint, #7d8fa3); }\n.ds-input:focus-visible { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }"
+    },
+    {
+      "name": "Nav Item (active)",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Sidebar row; the active one carries an inset 2px accent bar.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav__item\">Tous les éléments</button><button class=\"ds-nav__item ds-nav__item--active\">Personnel <span class=\"ds-nav__count\">12</span></button></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; width: 240px; }\n.ds-nav__item {\n  display: flex; align-items: center; gap: .55rem; width: 100%;\n  padding: .45rem .55rem;\n  border: 0; border-radius: 6px; background: transparent;\n  color: var(--text-muted, #95a3b4); text-align: left; cursor: pointer;\n  font: 400 14px/1.5 system-ui, sans-serif;\n}\n.ds-nav__item:hover { background: var(--bg-hover, #1b2532); color: var(--text, #e6edf3); }\n.ds-nav__item--active {\n  background: var(--bg-active, #1f2c3d); color: var(--text, #e6edf3);\n  box-shadow: inset 2px 0 0 var(--accent, #4f8cf7);\n}\n.ds-nav__item:focus-visible { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }\n.ds-nav__count {\n  margin-left: auto; min-width: 1.4rem; padding: 0 4px; border-radius: 999px;\n  background: var(--bg-elevated, #151d28); color: var(--text-faint, #7d8fa3);\n  font-size: .7rem; text-align: center;\n}"
+    },
+    {
+      "name": "Item Row",
+      "kind": "card",
+      "description": "The vault list row: initials avatar, title, metadata, folder chips.",
+      "html": "<button class=\"ds-row ds-row--active\"><span class=\"ds-row__avatar\" aria-hidden=\"true\">GH</span><span class=\"ds-row__body\"><span class=\"ds-row__title\">GitHub · back-office</span><span class=\"ds-row__meta\">github.internal.dev</span><span class=\"ds-row__chips\"><span class=\"ds-chip\">Dev Local</span></span></span></button>",
+      "css": ".ds-row {\n  display: flex; gap: .6rem; width: 100%; padding: .55rem; text-align: left;\n  border: 1px solid transparent; border-radius: 10px; background: transparent;\n  color: var(--text, #e6edf3); font: 400 14px/1.5 system-ui, sans-serif; cursor: pointer;\n}\n.ds-row:hover { background: var(--bg-hover, #1b2532); }\n.ds-row--active { background: var(--bg-active, #1f2c3d); border-color: var(--border-strong, #33455c); }\n.ds-row:focus-visible { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }\n.ds-row__avatar {\n  display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px;\n  border-radius: 9px; background: var(--accent-soft, rgba(79, 140, 247, 0.14)); color: var(--accent-strong, #6ba1ff);\n  font-size: .9rem; font-weight: 650;\n}\n.ds-row__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }\n.ds-row__title { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ds-row__meta { font-size: .76rem; color: var(--text-muted, #95a3b4); }\n.ds-row__chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }\n.ds-chip {\n  display: inline-flex; align-items: center; gap: .3rem; padding: 2px 8px;\n  border: 1px solid var(--border, #24303f); border-radius: 999px;\n  background: var(--bg-elevated, #151d28); color: var(--text-muted, #95a3b4); font-size: .74rem;\n}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "description": "Panel plane with a hairline and a lit top edge, never a cast shadow.",
+      "html": "<section class=\"ds-card\"><h3 class=\"ds-card__title\">Identifiants</h3><p class=\"ds-card__text\">Le mot de passe reste masqué jusqu'à révélation explicite.</p></section>",
+      "css": ".ds-card {\n  max-width: 420px; padding: 1rem 1.1rem;\n  border: 1px solid var(--border, #24303f); border-radius: 10px;\n  background: var(--bg-panel, #111821);\n  box-shadow: 0 1px 0 rgba(255,255,255,.03);\n  color: var(--text, #e6edf3); font: 400 14px/1.5 system-ui, sans-serif;\n}\n.ds-card__title {\n  margin: 0 0 .6rem; font-size: .8rem; font-weight: 600;\n  text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted, #95a3b4);\n}\n.ds-card__text { margin: 0; font-size: .85rem; color: var(--text-muted, #95a3b4); }"
+    },
+    {
+      "name": "Password Strength",
+      "kind": "custom",
+      "description": "Five-cell meter plus a text label; never colour alone.",
+      "html": "<div class=\"ds-strength\"><div class=\"ds-strength__track\"><span class=\"ds-strength__cell is-filled\"></span><span class=\"ds-strength__cell is-filled\"></span><span class=\"ds-strength__cell is-filled\"></span><span class=\"ds-strength__cell\"></span><span class=\"ds-strength__cell\"></span></div><span class=\"ds-strength__label\">Solide</span></div>",
+      "css": ".ds-strength { display: flex; align-items: center; gap: .6rem; max-width: 360px; font: 400 14px/1.5 system-ui, sans-serif; }\n.ds-strength__track { display: flex; gap: 3px; flex: 1; }\n.ds-strength__cell { flex: 1; height: 4px; border-radius: 999px; background: var(--bg-elevated, #151d28); }\n.ds-strength__cell.is-filled { background: var(--warn, #e0a63c); }\n.ds-strength__label { font-size: .74rem; color: var(--text-muted, #95a3b4); white-space: nowrap; }"
+    },
+    {
+      "name": "Switch",
+      "kind": "custom",
+      "description": "34×18 pill track, 12px thumb, native input visually hidden.",
+      "html": "<label class=\"ds-switch\"><input type=\"checkbox\" checked /><span class=\"ds-switch__track\"><span class=\"ds-switch__thumb\"></span></span><span>Verrouillage auto</span></label>",
+      "css": ".ds-switch { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer; font: 400 .78rem/1.5 system-ui, sans-serif; color: var(--text-muted, #95a3b4); }\n.ds-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }\n.ds-switch__track {\n  position: relative; display: inline-block; width: 34px; height: 18px;\n  border-radius: 999px; background: var(--bg-elevated, #151d28); border: 1px solid var(--border-strong, #33455c);\n  transition: background 120ms ease;\n}\n.ds-switch__thumb {\n  position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;\n  background: var(--text-faint, #7d8fa3);\n  transition: transform 120ms ease, background 120ms ease;\n}\n.ds-switch input:checked + .ds-switch__track {\n  background: var(--accent-soft, rgba(79, 140, 247, 0.14));\n  border-color: color-mix(in srgb, var(--accent, #4f8cf7) 55%, transparent);\n}\n.ds-switch input:checked + .ds-switch__track .ds-switch__thumb {\n  transform: translateX(16px); background: var(--accent-strong, #6ba1ff);\n}\n.ds-switch input:focus-visible + .ds-switch__track { outline: 2px solid var(--accent, #4f8cf7); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Sealed Instrument",
+    "overview": "Akooti's interface behaves like a precision instrument in a locked case: dark machined\nsurfaces, a single lit indicator, and no ornament that is not doing work. Every screen is\na readout of state the user must be able to trust — which vault is open, which folder is\nscoped, which secret is currently revealed — and the design earns that trust by staying\nquiet. Density is a feature: this is a tool for a developer at a keyboard, so information\nis packed tight and the chrome stays out of the way.\n\nThe material is flat. Depth is not implied by light falling on surfaces; it is drawn with\n1px borders and a six-step tonal ramp from near-black to a lifted panel grey. A card is\nnot \"above\" the page, it is a distinct plane. The one piece of colour with authorship is\nSignal Blue, and its scarcity is the point — it marks the active row, the primary action,\nthe focused control and a live one-time code, nothing else.\n\nCopy is sober technical French: plain sentences, no superlatives, and an error says what\nfailed and what to do next. The visual system never decorates a security decision; it\nsurfaces it — refusal, masking, scope and expiry are all visible states rather than\nmodals that appear after the fact.",
+    "keyCharacteristics": [
+      "Dark is the canonical theme; light is a remapped token set, not a second design.",
+      "Flat at rest: 1px borders and a tonal ramp carry all separation.",
+      "One accent, used on ≤10% of a screen.",
+      "14px base, compact 0.45–0.55rem control padding, 2px inter-row gaps.",
+      "Every state is also text, never colour alone.",
+      "Fully keyboard-operable: a 2px accent focus ring is never removed."
+    ],
+    "rules": [
+      {
+        "name": "The One Signal Rule",
+        "body": "Signal Blue covers ≤10% of any screen. If a layout needs a second accent to make sense, the layout is wrong, not the palette.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Variable Rule",
+        "body": "A component never names a colour literal; it consumes a token. A raw hex inside a component rule is a bug, not a variation. (Two documented exceptions carry a `var(--x, fallback)` pair: `--danger` and `--warn` in the health and audit rows.)",
+        "section": "colors"
+      },
+      {
+        "name": "The Dark-Is-Canonical Rule",
+        "body": "New tokens are authored dark first. Light theme is a key-by-key remap of the same variable names in `:root[data-theme=\"light\"]`; a token that only exists in one theme is incomplete.",
+        "section": "colors"
+      },
+      {
+        "name": "The Uppercase Is Structure Rule",
+        "body": "Text-transform: uppercase with positive tracking is reserved for structure labels — section headings, step names, type markers, stat keys. Never uppercase a sentence, an error, or a button label.",
+        "section": "typography"
+      },
+      {
+        "name": "The Masked Is Muted Rule",
+        "body": "A hidden secret is rendered as muted, letter-spaced dots in `--text-muted`; a revealed secret switches to full `--text` on a Signal Wash, zero letter-spacing. The visual difference between masked and revealed must be legible at a glance without reading the characters.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Surfaces are flat at rest. Nothing gains elevation on hover — hover is a background shift on the tonal ramp. If you reach for a shadow to separate two elements, use a hairline instead.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Two-Shadow Rule",
+        "body": "The system owns exactly two shadow values. A third means someone mistook a border for a shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Three-Radius Rule",
+        "body": "Before adding a number, ask which of the three jobs the surface has — touch, group, or cover. A fourth radius means a fourth job, and there isn't one.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Border-Over-Fill Rule",
+        "body": "A new state is introduced with a border colour plus a washed background, not with a solid fill. Solid fills belong to the primary button and the active surfaces, and they are rare on purpose.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** author every new value as a CSS custom property in `:root`, then add its light",
+      "**Do** reach for a hairline plus a tonal step before reaching for a shadow.",
+      "**Do** pair every semantic colour with text — \"refusé\", \"expiré\", the score label.",
+      "**Do** keep the global 2px accent focus ring on every interactive element, including",
+      "**Do** cap reading columns at 60ch (prose) and 900px (page), and use",
+      "**Do** use 6px for touch targets, 10px for groups, 16px for overlays, 999px for pills.",
+      "**Do** write French copy as plain sentences: what failed, then what to do next."
+    ],
+    "donts": [
+      "**Don't** introduce a second accent, a gradient, or a decorative illustration. The",
+      "**Don't** hard-code a hex, `rgb()` or `rgba()` inside a component rule; consume the",
+      "**Don't** lift a surface on hover, add a glow, or animate a transform other than the",
+      "**Don't** borrow consumer password-manager visual language: no shield or padlock",
+      "**Don't** use colour as the only carrier of a state, a score or an error.",
+      "**Don't** widen the base font or the control padding for \"breathing room\"; density is",
+      "**Don't** add a fourth radius, a third shadow, or a 2px border (the active nav bar is",
+      "**Don't** put text on a Signal Wash — it is a wash, not a fill. Solid accent fills take"
+    ]
+  }
+}
