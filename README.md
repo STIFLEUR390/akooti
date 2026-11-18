@@ -87,7 +87,7 @@ Le détail par fonction est dans [`docs/fonctionalites.md`](./docs/fonctionalite
 - ✅ **Conflits explicites** — LWW sur l'horodatage client, tombstones pour les suppressions, donc rejouer un lot est idempotent.
 - ✅ **Sauvegardes programmées** — guides : [`S3`](./docs/guides/s3.md), [`Google Drive`](./docs/guides/google-drive.md) ; instantanés `.akooti` (les fichiers du coffre, déjà chiffrés) vers dossier local / NAS, S3 compatible (AWS, R2, MinIO, Wasabi) ou Google Drive (refresh token), rétention et historique des exécutions.
 - ✅ **Réversibilité** — export d'urgence JSON en clair après confirmation du mot de passe maître, et restauration d'un instantané `.akooti` depuis l'écran de déverrouillage.
-- ⚠️ **Recette externe** — Supabase est vérifié de bout en bout sur un projet réel (push, pull, tombstone, Realtime, RLS) ; S3 et Google Drive restent couverts hors ligne (signature, conversions, parseurs) tant qu'ils ne sont pas testés sur un bucket / compte réels.
+- ⚠️ **Recette externe** — Supabase est vérifié de bout en bout sur un projet réel (push, pull, tombstone, Realtime, RLS) ; S3 est vérifié sur un MinIO local (envoi, rétention, téléchargement) ; Google Drive reste couvert hors ligne tant qu'il n'est pas testé sur un compte réel.
 
 ## Architecture
 

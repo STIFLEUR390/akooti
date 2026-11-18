@@ -376,12 +376,12 @@ politiques RLS apparaissent dans le résultat de vérification).
 | 6 | Suppression puis sync | même identifiant avec `is_deleted = true` (tombstone), l'entrée disparaît de la liste locale — observé |
 | 7 | Realtime | après un `PATCH` serveur sur une ligne, le curseur et `lastSyncAt` avancent **sans** action manuelle — observé |
 | 8 | Cible locale + rétention | sauvegarde planifiée au démarrage, 3 runs → 2 fichiers conservés — observé |
+| 8bis | Cible S3 (MinIO local, path-style) | « Bucket accessible », 4 runs, rétention 2 vérifiée par une liste signée indépendante (2 objets), objet téléchargé = 176 298 octets, magic `AKOOTI-SNAP1` — observé |
 | 9 | Export d'instantané | dialogue natif, fichier relu (magic `AKOOTI-SNAP1`) — observé |
 | 10 | Export JSON en clair | refusé avec un mauvais mot de passe, écrit et vérifié avec le bon (aucun `ak_mcp_`), puis supprimé — observé |
 | 11 | Restauration depuis l'écran verrouillé | dialogue natif non piloté (focus Wayland) ; round-trip couvert par `tests/backup_test.rs` — à rejouer à la main |
 
-Chemins non couverts faute de compte réel : S3 (SigV4 vérifié hors ligne) et
-Google Drive (refresh token).
+Chemin non couvert faute de compte réel : Google Drive (refresh token).
 
 ## 9. Grille à recopier pour une nouvelle phase
 
@@ -410,6 +410,6 @@ Défauts trouvés : … (chacun devient un correctif + un test)
 | Cérémonie WebAuthn jouée depuis un site réel | le navigateur de l'application ne charge pas d'extension non empaquetée ; le daemon, lui, est couvert par des tests de dispatch | §6.4, « reste à faire à la main » |
 | Remplissage piloté par un agent via le pont natif | le pont ne sert que les remplissages initiés par l'extension (`vaultExtensionFill`) | [ADR 0008](./adr/0008-extension-native-messaging.md) |
 | Transport IPC et enregistrement Windows | named pipe non implémenté, manifeste stocké dans le registre | [ADR 0006](./adr/0006-transport-ipc-socket-unix.md) |
-| S3 et Google Drive en conditions réelles | demandent un bucket et un compte Google ; testés hors ligne (signature, conversions, parseurs) | §8.1 |
+| Google Drive en conditions réelles | demande un compte Google et un refresh token ; testé hors ligne (conversions, parseurs) | §8.1 |
 | Réponse HIBP réelle dans la recette | dépend d'un service tiers et du réseau ; le parseur et la comparaison locale sont testés hors ligne | §7.1 |
 | Packaging et mise à jour | hors périmètre des phases 5 et 6 | phase ultérieure |
