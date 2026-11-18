@@ -71,13 +71,22 @@ Akooti écrit à la racine du Drive.
 **Tester** doit répondre « Google Drive accessible ». Puis **Ajouter la
 cible** et **Sauvegarder** une fois.
 
-## 5. Vérifier
+## 5. Validation côté Akooti
+
+Le pilote a été vérifié contre l'émulateur d'API Google Drive v3
+[`gfeh-drive`](https://docs.rs/gfeh-drive/) : test de connexion, trois envois,
+rétention (2 objets conservés), téléchargement d'un objet et restauration du
+`.akooti` téléchargé (ouverture du coffre avec le mot de passe maître). La
+recette sur un vrai compte Google (OAuth, quotas, dossier) reste à faire — voir
+[`desktop-tests.md`](../desktop-tests.md) §8.2.
+
+## 6. Vérifier
 
 Dans Drive, les fichiers `akooti-<epoch-ms>.akooti` apparaissent dans le
 dossier choisi. Leur contenu est chiffré : Drive ne lit rien de plus que des
 octets.
 
-## 6. Dépannage
+## 7. Dépannage
 
 | Symptôme | Cause | Correction |
 | -------- | ----- | ---------- |
@@ -86,7 +95,7 @@ octets.
 | `Google Drive a refusé l'envoi (404)` | identifiant de dossier erroné | vider le champ (racine) ou recopier l'id |
 | `Google Drive injoignable` | réseau/proxy | tester `curl -I https://www.googleapis.com` |
 
-## 7. Sécurité
+## 8. Sécurité
 
 - Le refresh token est **chiffré** dans la base locale (clé maître) et n'est
   jamais renvoyé à l'interface.

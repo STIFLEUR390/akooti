@@ -71,12 +71,17 @@ fn store_for(config: &BackupConfig) -> Box<dyn Store> {
             client_secret,
             refresh_token,
             folder_id,
-        } => Box::new(DriveStore {
-            client_id: client_id.clone(),
-            client_secret: client_secret.clone(),
-            refresh_token: refresh_token.clone(),
-            folder_id: folder_id.clone().unwrap_or_else(|| "root".to_owned()),
-        }),
+        } => {
+            let (api_base, static_token) = drive_test_overrides();
+            Box::new(DriveStore {
+                client_id: client_id.clone(),
+                client_secret: client_secret.clone(),
+                refresh_token: refresh_token.clone(),
+                folder_id: folder_id.clone().unwrap_or_else(|| "root".to_owned()),
+                api_base: api_base.unwrap_or_else(|| "https://www.googleapis.com".to_owned()),
+                static_token,
+            })
+        }
     }
 }
 
@@ -374,15 +379,42 @@ impl Store for S3Store {
     }
 }
 
+/// Debug-only endpoint override, used to point the Drive driver at the
+/// `gfeh-drive-emulator` during tests. Release builds always talk to Google.
+fn drive_test_overrides() -> (Option<String>, Option<String>) {
+    #[cfg(debug_assertions)]
+    {
+        let base = std::env::var("AKOOTI_GDRIVE_API_BASE")
+            .ok()
+            .map(|value| value.trim().trim_end_matches('/').to_owned())
+            .filter(|value| !value.is_empty());
+        let token = std::env::var("AKOOTI_GDRIVE_STATIC_TOKEN")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        (base, token)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        (None, None)
+    }
+}
+
 struct DriveStore {
     client_id: String,
     client_secret: String,
     refresh_token: String,
     folder_id: String,
+    api_base: String,
+    /// Test-only bearer token; when set, the OAuth refresh is skipped.
+    static_token: Option<String>,
 }
 
 impl DriveStore {
     fn access_token(&self) -> Result<String, StoreError> {
+        if let Some(token) = &self.static_token {
+            return Ok(token.clone());
+        }
         let url = "https://oauth2.googleapis.com/token";
         let body = format!(
             "client_id={}&client_secret={}&refresh_token={}&grant_type=refresh_token",
@@ -415,7 +447,8 @@ impl DriveStore {
             akooti_core::SNAPSHOT_PREFIX.trim_end_matches('-')
         );
         let url = format!(
-            "https://www.googleapis.com/drive/v3/files?q={}&fields=files(id,name)&pageSize=200",
+            "{}/drive/v3/files?q={}&fields=files(id,name)&pageSize=200",
+            self.api_base,
             encode_query(&query)
         );
         let mut response = ureq::get(&url)
@@ -445,38 +478,49 @@ impl DriveStore {
 impl Store for DriveStore {
     fn put(&self, bytes: &[u8], name: &str) -> Result<(), StoreError> {
         let token = self.access_token()?;
-        let boundary = "akooti-boundary-7d3f";
         let metadata = json!({"name": name, "parents": [self.folder_id]});
-        let mut body = Vec::with_capacity(bytes.len() + 512);
-        body.extend_from_slice(
-            format!("--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n")
-                .as_bytes(),
+        let init_url = format!(
+            "{}/upload/drive/v3/files?uploadType=resumable&fields=id",
+            self.api_base
         );
-        body.extend_from_slice(metadata.to_string().as_bytes());
-        body.extend_from_slice(
-            format!("\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n")
-                .as_bytes(),
-        );
-        body.extend_from_slice(bytes);
-        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        let url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id";
-        let response = ureq::post(url)
+        let mut init = ureq::post(&init_url)
             .header("Authorization", &format!("Bearer {token}"))
-            .header(
-                "Content-Type",
-                &format!("multipart/related; boundary={boundary}"),
-            )
+            .header("Content-Type", "application/json; charset=UTF-8")
+            .header("X-Upload-Content-Type", "application/octet-stream")
+            .header("X-Upload-Content-Length", &bytes.len().to_string())
             .config()
             .timeout_global(Some(NETWORK_TIMEOUT))
             .build()
-            .send(&body);
-        match response {
-            Ok(_) => Ok(()),
-            Err(ureq::Error::StatusCode(code)) => Err(StoreError::new(format!(
-                "Google Drive a refusé l'envoi ({code})"
-            ))),
-            Err(_) => Err(StoreError::new("Google Drive injoignable")),
-        }
+            .send(metadata.to_string())
+            .map_err(|error| match error {
+                ureq::Error::StatusCode(code) => StoreError::new(format!(
+                    "Google Drive a refusé l'ouverture de l'envoi ({code})"
+                )),
+                _ => StoreError::new("Google Drive injoignable"),
+            })?;
+        let location = init
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .ok_or_else(|| StoreError::new("Google n'a pas renvoyé d'URL d'envoi"))?;
+        let _ = init.body_mut().read_to_string();
+
+        let mut upload = ureq::put(&location)
+            .header("Authorization", &format!("Bearer {token}"))
+            .header("Content-Type", "application/octet-stream")
+            .config()
+            .timeout_global(Some(NETWORK_TIMEOUT))
+            .build()
+            .send(bytes)
+            .map_err(|error| match error {
+                ureq::Error::StatusCode(code) => {
+                    StoreError::new(format!("Google Drive a refusé l'envoi ({code})"))
+                }
+                _ => StoreError::new("Google Drive injoignable"),
+            })?;
+        let _ = upload.body_mut().read_to_string();
+        Ok(())
     }
 
     fn list(&self) -> Result<Vec<String>, StoreError> {
@@ -492,7 +536,7 @@ impl Store for DriveStore {
         else {
             return Ok(());
         };
-        let url = format!("https://www.googleapis.com/drive/v3/files/{id}");
+        let url = format!("{}/drive/v3/files/{id}", self.api_base);
         ureq::delete(&url)
             .header("Authorization", &format!("Bearer {token}"))
             .config()

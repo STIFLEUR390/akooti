@@ -151,7 +151,7 @@ Ce que l'authentificateur du coffre ne fera jamais, et qui est dit au site :
 | Base locale primaire              | Le coffre SQLCipher est la source de vérité, utilisable hors ligne                     | ✅     |
 | Sync temps réel (Supabase)        | Projet Supabase propre à l'utilisateur, enregistrements XChaCha20 côté client, Realtime, RLS | ✅ |
 | Résolution de conflits            | Horodatage logique par enregistrement (LWW, égalité = l'arrivant gagne), suppressions propagées par tombstone | ✅ |
-| Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | ✅ ⚠️ Google Drive à vérifier sur un compte réel |
+| Sauvegardes planifiées            | Instantanés `.akooti` chiffrés vers dossier local/NAS, S3 (AWS, R2, MinIO) ou Google Drive (OAuth2), rétention paramétrable | ✅ ⚠️ Google Drive validé sur émulateur API v3, compte réel à vérifier |
 | Export d'urgence                  | Instantané `.akooti` chiffré, export JSON en clair après confirmation du mot de passe maître, restauration de l'instantané | ✅ |
 
 ## 9. Santé du coffre

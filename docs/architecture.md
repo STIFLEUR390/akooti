@@ -376,4 +376,4 @@ Voir [fonctionalites.md](./fonctionalites.md) pour leur statut.
 | Aucun fournisseur biométrique branché ; l'interface masque le contrôle | [ADR 0005](./adr/0005-biometrie-deverrouillage.md) |
 | Les secrets TOTP de moins de 128 bits sont acceptés (services réels) | [ADR 0007](./adr/0007-fills-et-secrets-totp-courts.md) |
 | `SelectorOverride.submit: null` ne désactive pas la soumission (indistinguable d'« absent ») | `daemon/inject.rs` |
-| Google Drive vérifié uniquement hors ligne (conversions, parseurs) | compte Google + refresh token à brancher |
+| Google Drive validé contre un émulateur d'API v3, pas sur un compte Google réel | OAuth + quotas à vérifier avec un vrai compte |
