@@ -7,3 +7,6 @@ coverage
 src-tauri/gen
 bun.lock
 docs
+.agents
+.github/skills
+.github/agents

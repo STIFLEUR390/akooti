@@ -12,6 +12,8 @@ export default tseslint.config(
       "**/.wxt/**",
       "**/src-tauri/**",
       "**/coverage/**",
+      "**/.agents/**",
+      "**/.github/skills/**",
     ],
   },
   js.configs.recommended,
