@@ -46,6 +46,11 @@ export function entropyScore(bits: number): number {
   return 4;
 }
 
+/** "1 entrée", "2 entrées" — French keeps the singular for 0 and 1. */
+export function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count > 1 ? plural : singular}`;
+}
+
 /** "il y a 3 jours", "à l'instant", … */
 export function relativeTime(epochSeconds: number | null, nowSeconds = Date.now() / 1_000): string {
   if (epochSeconds === null) {

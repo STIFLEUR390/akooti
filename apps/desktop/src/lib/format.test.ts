@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  countLabel,
   describeCleanup,
   describeImportIssue,
   entropyScore,
@@ -36,6 +37,15 @@ function item(partial: Partial<VaultItem> & Pick<VaultItem, "id" | "title">): Va
     ...partial,
   };
 }
+
+describe("countLabel", () => {
+  test("keeps the singular for 0 and 1", () => {
+    expect(countLabel(0, "dossier")).toBe("0 dossier");
+    expect(countLabel(1, "dossier")).toBe("1 dossier");
+    expect(countLabel(3, "dossier")).toBe("3 dossiers");
+    expect(countLabel(2, "appliqué")).toBe("2 appliqués");
+  });
+});
 
 describe("clipboard countdown", () => {
   test("never goes negative", () => {

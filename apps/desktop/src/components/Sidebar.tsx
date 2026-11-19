@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { Folder } from "@akooti/shared";
 
@@ -11,6 +11,7 @@ import type { IconName } from "./Icons";
 interface SidebarProps {
   folders: Folder[];
   counts: Record<string, number>;
+  totalItems: number;
   activeFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   screen: Screen;
@@ -50,6 +51,7 @@ function iconFor(folder: Folder): IconName {
 export function Sidebar({
   folders,
   counts,
+  totalItems,
   activeFolderId,
   onSelectFolder,
   screen,
@@ -70,10 +72,10 @@ export function Sidebar({
   const [draftName, setDraftName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const renameCancelled = useRef(false);
 
   const systemFolders = folders.filter((folder) => folder.isSystem);
   const userFolders = folders.filter((folder) => !folder.isSystem);
-  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
 
   function submitFolder() {
     const name = draftName.trim();
@@ -84,9 +86,17 @@ export function Sidebar({
     setCreating(false);
   }
 
+  function startRename(folder: Folder) {
+    renameCancelled.current = false;
+    setRenameValue(folder.name);
+    setRenaming(folder.id);
+  }
+
   function submitRename(folder: Folder) {
+    const cancelled = renameCancelled.current;
+    renameCancelled.current = false;
     const name = renameValue.trim();
-    if (name.length > 0 && name !== folder.name) {
+    if (!cancelled && name.length > 0 && name !== folder.name) {
       onRenameFolder(folder.id, name);
     }
     setRenaming(null);
@@ -114,7 +124,7 @@ export function Sidebar({
       >
         <Icon name="key" />
         <span className="nav-item__label">Toutes les entrées</span>
-        <span className="nav-item__count">{total}</span>
+        <span className="nav-item__count">{totalItems}</span>
       </button>
 
       <h2 className="sidebar__heading">Dossiers système</h2>
@@ -139,7 +149,9 @@ export function Sidebar({
                   <Icon name={iconFor(folder)} />
                 </span>
                 <span className="nav-item__label">
-                  <span className="nav-item__name">{folder.name}</span>
+                  <span className="nav-item__name" title={folder.name}>
+                    {folder.name}
+                  </span>
                   <span
                     className="nav-item__tag"
                     role="img"
@@ -187,6 +199,13 @@ export function Sidebar({
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
             onBlur={submitFolder}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setDraftName("");
+                setCreating(false);
+              }
+            }}
             placeholder="Nom du dossier"
             aria-label="Nom du nouveau dossier"
             maxLength={64}
@@ -217,6 +236,13 @@ export function Sidebar({
                       value={renameValue}
                       onChange={(event) => setRenameValue(event.target.value)}
                       onBlur={() => submitRename(folder)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.stopPropagation();
+                          renameCancelled.current = true;
+                          setRenaming(null);
+                        }
+                      }}
                       aria-label={`Nouveau nom pour ${folder.name}`}
                       maxLength={64}
                     />
@@ -230,10 +256,7 @@ export function Sidebar({
                       onScreen("vault");
                     }}
                     aria-current={isActive ? "page" : undefined}
-                    onDoubleClick={() => {
-                      setRenaming(folder.id);
-                      setRenameValue(folder.name);
-                    }}
+                    onDoubleClick={() => startRename(folder)}
                   >
                     <span
                       className="nav-item__icon"
@@ -242,20 +265,15 @@ export function Sidebar({
                       <Icon name={iconFor(folder)} />
                     </span>
                     <span className="nav-item__label">
-                      <span className="nav-item__name">{folder.name}</span>
+                      <span className="nav-item__name" title={folder.name}>
+                        {folder.name}
+                      </span>
                     </span>
                     <span className="nav-item__count">{counts[folder.id] ?? 0}</span>
                   </button>
                 )}
                 <div className="nav-item__actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => {
-                      setRenaming(folder.id);
-                      setRenameValue(folder.name);
-                    }}
-                  >
+                  <button type="button" className="text-button" onClick={() => startRename(folder)}>
                     Renommer
                   </button>
                   <button
@@ -321,23 +339,20 @@ export function Sidebar({
       </div>
 
       <footer className="sidebar__footer">
-        <button type="button" className="text-button" onClick={onOpenGuide}>
-          Guide de démarrage
-        </button>
-        <button type="button" className="text-button" onClick={onCheckUpdate}>
-          Vérifier les mises à jour
-        </button>
+        <div className="sidebar__links">
+          <button type="button" className="text-button" onClick={onOpenGuide}>
+            Guide de démarrage
+          </button>
+          <button type="button" className="text-button" onClick={onCheckUpdate}>
+            Vérifier les mises à jour
+          </button>
+        </div>
         <button type="button" className="nav-item" onClick={onLock}>
           <Icon name="lock" />
           <span className="nav-item__label">Verrouiller</span>
           <kbd>Ctrl L</kbd>
         </button>
-        <button
-          type="button"
-          className="nav-item"
-          onClick={onToggleTheme}
-          aria-pressed={theme === "light"}
-        >
+        <button type="button" className="nav-item" onClick={onToggleTheme}>
           <Icon name={theme === "dark" ? "sun" : "moon"} />
           <span className="nav-item__label">
             {theme === "dark" ? "Thème clair" : "Thème sombre"}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { browser } from "wxt/browser";
 import { isTokenShaped } from "../../lib/native/pairing";
 import { callRuntime, type RuntimeSend } from "../../lib/runtime";
@@ -19,8 +19,9 @@ import type { ItemSummary } from "../../lib/protocol";
  * the only thing that comes back here is a report (`fieldsFilled`, `submitted`)
  * or a field name.
  *
- * Every search is audited by the daemon, so a query is only sent on submit —
- * not on each keystroke.
+ * Typing filters the items already loaded, so the list answers at once without
+ * a request. Submitting asks the daemon (audited) and can reach items beyond
+ * that first page — the reason the field is not searched on each keystroke.
  */
 
 /** French headline for each failure code; the raw message stays a detail. */
@@ -39,8 +40,19 @@ const FAILURE_TITLES: Record<RuntimeErrorCode, string> = {
   internal: "Erreur interne",
 };
 
+/** Failure codes that describe the Native Messaging link, not an action. */
+const LINK_FAILURES: ReadonlySet<RuntimeErrorCode> = new Set([
+  "host_missing",
+  "daemon_unavailable",
+  "timeout",
+  "protocol",
+  "not_paired",
+  "context_lost",
+]);
+
 /** What the popup shows under a title. */
 interface Failure {
+  code: RuntimeErrorCode;
   title: string;
   detail: string | null;
 }
@@ -60,13 +72,33 @@ export function App() {
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState<{ origin: string; kind: string } | null>(null);
-  const [capture, setCapture] = useState<string | null>(null);
+  const [capture, setCapture] = useState<{ itemId: string; text: string } | null>(null);
+  const alive = useRef(true);
+
+  /** Loads the first page of items and what the active tab looks like. */
+  async function loadVault(): Promise<void> {
+    const loaded = await callRuntime(send, { type: "akooti:search", query: "" });
+    if (!alive.current) {
+      return;
+    }
+    if (loaded.ok && loaded.kind === "search") {
+      setItems(loaded.items);
+      setSearched(true);
+    }
+    const detected = await callRuntime(send, { type: "akooti:detect" });
+    if (!alive.current) {
+      return;
+    }
+    if (detected.ok && detected.kind === "detect") {
+      setPage({ origin: detected.origin, kind: detected.detection.kind });
+    }
+  }
 
   useEffect(() => {
-    let alive = true;
+    alive.current = true;
     void (async () => {
       const reply = await callRuntime(send, { type: "akooti:status" });
-      if (!alive) {
+      if (!alive.current) {
         return;
       }
       if (!reply.ok) {
@@ -75,7 +107,11 @@ export function App() {
         return;
       }
       if (reply.kind !== "status") {
-        setFailure({ title: FAILURE_TITLES.internal, detail: null });
+        setFailure({
+          code: "internal",
+          title: FAILURE_TITLES.internal,
+          detail: null,
+        });
         setPhase("unpaired");
         return;
       }
@@ -85,18 +121,10 @@ export function App() {
         return;
       }
       setPhase("paired");
-      const loaded = await callRuntime(send, { type: "akooti:search", query: "" });
-      if (alive && loaded.ok && loaded.kind === "search") {
-        setItems(loaded.items);
-        setSearched(true);
-      }
-      const detected = await callRuntime(send, { type: "akooti:detect" });
-      if (alive && detected.ok && detected.kind === "detect") {
-        setPage({ origin: detected.origin, kind: detected.detection.kind });
-      }
+      await loadVault();
     })();
     return () => {
-      alive = false;
+      alive.current = false;
     };
   }, []);
 
@@ -126,6 +154,9 @@ export function App() {
     if (refreshed && refreshed.kind === "status") {
       setStatus(refreshed.status);
       setPhase(refreshed.status.paired ? "paired" : "unpaired");
+      if (refreshed.status.paired) {
+        await loadVault();
+      }
     } else {
       setPhase("unpaired");
     }
@@ -159,7 +190,7 @@ export function App() {
     if (!reply || reply.kind !== "fill") {
       return;
     }
-    const fields = reply.outcome.fieldsFilled.join(", ") || "aucun champ";
+    const fields = reply.outcome.fieldsFilled.map(fieldLabel).join(", ") || "aucun champ";
     setNotice(
       reply.outcome.submitted
         ? `Champs remplis (${fields}) et formulaire soumis.`
@@ -175,12 +206,16 @@ export function App() {
     setNotice(`${labelOf(reply.field)} copié — effacé du presse-papiers dans 30 s.`);
   }
 
-  async function captureSelectors(): Promise<void> {
+  async function captureSelectors(item: ItemSummary): Promise<void> {
+    if (capture?.itemId === item.id) {
+      setCapture(null);
+      return;
+    }
     const reply = await run({ type: "akooti:capture" });
     if (!reply || reply.kind !== "capture") {
       return;
     }
-    setCapture(reply.report.text);
+    setCapture({ itemId: item.id, text: reply.report.text });
     setNotice("Sélecteurs capturés : collez-les dans l'entrée du coffre.");
   }
 
@@ -188,20 +223,113 @@ export function App() {
     if (capture === null) {
       return;
     }
-    await navigator.clipboard.writeText(capture);
+    await navigator.clipboard.writeText(capture.text);
     setNotice("Sélecteurs copiés.");
   }
 
-  const pill = describe(status, phase);
+  const link = describeLink(status, phase, failure);
+  const tabHost = page ? hostOf(page.origin) : null;
+  const filtered = items.filter((item) => matches(item, query));
+  const tabItems = tabHost
+    ? filtered.filter((item) => hostOf(item.primaryUrl ?? "") === tabHost)
+    : [];
+  const otherItems = filtered.filter((item) => !tabItems.includes(item));
+
+  function itemRow(item: ItemSummary) {
+    const expanded = capture?.itemId === item.id;
+    return (
+      <li key={item.id} className="item">
+        <div className="item__head">
+          <span className="item__title" title={item.title}>
+            {item.title}
+          </span>
+          {item.primaryUrl && (
+            <span className="item__host" title={hostOf(item.primaryUrl)}>
+              {hostOf(item.primaryUrl)}
+            </span>
+          )}
+        </div>
+        {item.username && (
+          <div className="item__meta">
+            <span className="item__username" title={item.username}>
+              {item.username}
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              disabled={busy}
+              onClick={() => void copy(item, "username")}
+              aria-label={`Copier l'identifiant de ${item.title}`}
+              title="Copier l'identifiant"
+            >
+              <CopyIcon />
+            </button>
+          </div>
+        )}
+        <div className="item__actions">
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={busy}
+            onClick={() => void fill(item)}
+          >
+            Remplir
+          </button>
+          <button
+            type="button"
+            className="chip chip--action"
+            disabled={busy}
+            onClick={() => void copy(item, "password")}
+            aria-label={`Copier le mot de passe de ${item.title}`}
+            title="Copier le mot de passe"
+          >
+            Mot de passe
+          </button>
+          {item.hasTotp && (
+            <button
+              type="button"
+              className="chip chip--action"
+              disabled={busy}
+              onClick={() => void copy(item, "totp")}
+              aria-label={`Copier le code TOTP de ${item.title}`}
+              title="Copier le code TOTP"
+            >
+              TOTP
+            </button>
+          )}
+          <button
+            type="button"
+            className="chip"
+            disabled={busy}
+            onClick={() => void captureSelectors(item)}
+            aria-expanded={expanded}
+            title="Capturer les sélecteurs CSS de cet onglet"
+          >
+            Sélecteurs
+          </button>
+        </div>
+        {expanded && capture && (
+          <div className="capture" aria-label="Sélecteurs capturés">
+            <pre className="capture__text">{capture.text}</pre>
+            <button type="button" className="button" onClick={() => void copyCapture()}>
+              Copier les sélecteurs
+            </button>
+          </div>
+        )}
+      </li>
+    );
+  }
 
   return (
     <div className="popup">
       <header className="toolbar">
-        <span className="brand">
-          <img src="/icon/48.png" alt="" width={20} height={20} className="brand__logo" />
+        <h1 className="brand">
+          <img src="/icon/48.png" alt="" width={22} height={22} className="brand__logo" />
           Akooti
+        </h1>
+        <span className={`pill pill--${link.tone}`} role="status" title={link.detail ?? undefined}>
+          {link.label}
         </span>
-        <span className={`pill pill--${pill.tone}`}>{pill.label}</span>
       </header>
 
       <main className="body">
@@ -215,7 +343,7 @@ export function App() {
           {notice && <p className="alert alert--success">{notice}</p>}
         </div>
 
-        {phase === "loading" && <p className="muted">Chargement…</p>}
+        {phase === "loading" && <p className="muted small">Chargement…</p>}
 
         {phase === "unpaired" && (
           <form
@@ -225,8 +353,8 @@ export function App() {
               void pair();
             }}
           >
-            <h1 className="pair__title">Appairer l'extension</h1>
-            <p className="muted">
+            <h2 className="pair__title">Appairer l'extension</h2>
+            <p className="muted small">
               Dans Akooti, ouvrez <strong>Accès IA</strong>, créez un jeton avec les portées{" "}
               <code>read_metadata</code> et <code>blind_fill</code>, puis collez-le ici.
             </p>
@@ -239,6 +367,7 @@ export function App() {
               aria-label="Jeton d'accès"
               autoComplete="off"
               spellCheck={false}
+              autoFocus
             />
             <p className="muted small">
               {token.length > 0 && !isTokenShaped(token)
@@ -246,7 +375,7 @@ export function App() {
                 : "Le jeton reste dans ce navigateur et n'est envoyé qu'au daemon local."}
             </p>
             <button
-              className="button button--primary"
+              className="button button--primary button--block"
               type="submit"
               disabled={busy || !isTokenShaped(token)}
             >
@@ -257,7 +386,7 @@ export function App() {
 
         {phase === "paired" && (
           <>
-            <p className="muted small page">
+            <p className="page" title={page?.origin}>
               {page
                 ? `${describeForm(page.kind)} sur ${page.origin}`
                 : "Aucun formulaire de connexion détecté sur cette page."}
@@ -271,94 +400,55 @@ export function App() {
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Rechercher un identifiant…"
                 aria-label="Rechercher un identifiant"
+                autoComplete="off"
+                spellCheck={false}
+                autoFocus
               />
               <button className="button" type="submit" disabled={busy}>
                 Chercher
               </button>
             </form>
 
-            <ul className="items">
-              {items.map((item) => (
-                <li key={item.id} className="item">
-                  <div className="item__head">
-                    <span className="item__title">{item.title}</span>
-                    {item.primaryUrl && (
-                      <span className="item__host">{hostOf(item.primaryUrl)}</span>
-                    )}
-                  </div>
-                  {item.username && <span className="item__username">{item.username}</span>}
-                  <div className="item__actions">
-                    <button
-                      className="button button--primary"
-                      disabled={busy}
-                      onClick={() => void fill(item)}
-                    >
-                      Remplir
-                    </button>
-                    <span className="item__copy">
-                      Copier
-                      <button
-                        className="chip"
-                        disabled={busy}
-                        onClick={() => void copy(item, "username")}
-                      >
-                        nom
-                      </button>
-                      <button
-                        className="chip"
-                        disabled={busy}
-                        onClick={() => void copy(item, "password")}
-                      >
-                        mot de passe
-                      </button>
-                      {item.hasTotp && (
-                        <button
-                          className="chip"
-                          disabled={busy}
-                          onClick={() => void copy(item, "totp")}
-                        >
-                          code
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                </li>
-              ))}
-              {searched && items.length === 0 && (
-                <li className="muted small">Aucun identifiant ne correspond.</li>
+            <div className="results">
+              {tabItems.length > 0 && <h2 className="group">Pour cet onglet</h2>}
+              {tabItems.length > 0 && <ul className="items">{tabItems.map(itemRow)}</ul>}
+              {otherItems.length > 0 && (
+                <h2 className="group">
+                  {tabItems.length > 0 ? "Autres identifiants" : "Identifiants"}
+                </h2>
               )}
-            </ul>
-
-            <section className="capture">
-              <div className="capture__head">
-                <span className="muted small">
-                  Les sélecteurs se collent dans l'entrée du coffre : le pont navigateur ne l'écrit
-                  jamais.
-                </span>
-                <button className="chip" disabled={busy} onClick={() => void captureSelectors()}>
-                  Capturer
-                </button>
-              </div>
-              {capture !== null && (
-                <>
-                  <pre className="capture__text">{capture}</pre>
-                  <button className="button" onClick={() => void copyCapture()}>
-                    Copier les sélecteurs
-                  </button>
-                </>
-              )}
-            </section>
+              {otherItems.length > 0 && <ul className="items">{otherItems.map(itemRow)}</ul>}
+              {filtered.length === 0 &&
+                (status?.daemon && !status.daemon.vaultUnlocked ? (
+                  <p className="empty">
+                    Coffre verrouillé : déverrouillez Akooti pour voir les identifiants.
+                  </p>
+                ) : searched ? (
+                  <p className="empty">
+                    {query.length > 0
+                      ? "Aucun identifiant ne correspond à cette recherche."
+                      : "Aucun identifiant dans le coffre."}
+                  </p>
+                ) : null)}
+            </div>
           </>
         )}
       </main>
 
       <footer className="footer">
-        <span className="muted small">
+        <span
+          className="footer__token"
+          title={
+            status?.paired
+              ? `Jeton ${status.maskedToken}${status.label ? ` — ${status.label}` : ""}`
+              : undefined
+          }
+        >
           {status?.paired ? `Jeton ${status.maskedToken}` : "Aucun jeton"}
           {status?.label ? ` — ${status.label}` : ""}
         </span>
         {phase === "paired" && (
-          <button className="chip" disabled={busy} onClick={() => void unpair()}>
+          <button type="button" className="chip" disabled={busy} onClick={() => void unpair()}>
             Dissocier
           </button>
         )}
@@ -367,18 +457,59 @@ export function App() {
   );
 }
 
-/** Header pill: pairing state first, then what the daemon says about the vault. */
-function describe(status: ExtensionStatus | null, phase: Phase): { label: string; tone: string } {
+/** Native Messaging link state, then what the daemon says about the vault. */
+function describeLink(
+  status: ExtensionStatus | null,
+  phase: Phase,
+  failure: Failure | null,
+): { label: string; tone: string; detail: string | null } {
+  if (failure?.code === "locked") {
+    return {
+      label: FAILURE_TITLES.locked,
+      tone: "warn",
+      detail: "Déverrouillez Akooti pour remplir ou copier.",
+    };
+  }
+  const linkFailure = failure && LINK_FAILURES.has(failure.code) ? failure : null;
+  if (linkFailure) {
+    const tones: Partial<Record<RuntimeErrorCode, string>> = {
+      daemon_unavailable: "warn",
+      timeout: "warn",
+      protocol: "danger",
+      host_missing: "danger",
+    };
+    return {
+      label: FAILURE_TITLES[linkFailure.code],
+      tone: tones[linkFailure.code] ?? "muted",
+      detail: linkFailure.detail,
+    };
+  }
   if (phase === "unpaired" || !status?.paired) {
-    return { label: "Non appairée", tone: "muted" };
+    return {
+      label: "Non appairée",
+      tone: "muted",
+      detail: "Aucun jeton dans ce navigateur.",
+    };
   }
   if (!status.daemon) {
-    return { label: "Application fermée", tone: "warn" };
+    return {
+      label: "Application fermée",
+      tone: "warn",
+      detail: status.daemonError ?? "Le pont natif ne joint pas le daemon.",
+    };
   }
   if (!status.daemon.vaultUnlocked) {
-    return { label: "Coffre verrouillé", tone: "warn" };
+    return {
+      label: "Coffre verrouillé",
+      tone: "warn",
+      detail: "Déverrouillez Akooti pour remplir ou copier.",
+    };
   }
-  return { label: "Coffre déverrouillé", tone: "success" };
+  return {
+    label: "Daemon connecté",
+    tone: "success",
+    detail: "Native Messaging joignable, coffre déverrouillé.",
+  };
 }
 
 function describeForm(kind: string): string {
@@ -405,14 +536,63 @@ function labelOf(field: CopyField): string {
   }
 }
 
-function toFailure(code: RuntimeErrorCode, detail: string): Failure {
-  return { title: FAILURE_TITLES[code], detail: detail.length > 0 ? detail : null };
+/** Fill reports use the page role names; the popup speaks French. */
+function fieldLabel(field: string): string {
+  switch (field) {
+    case "username":
+      return "identifiant";
+    case "password":
+      return "mot de passe";
+    case "totp":
+      return "code";
+    default:
+      return field;
+  }
 }
 
+function toFailure(code: RuntimeErrorCode, detail: string): Failure {
+  return { code, title: FAILURE_TITLES[code], detail: detail.length > 0 ? detail : null };
+}
+
+/** Host of a URL, or "" when it does not parse. */
 function hostOf(url: string): string {
   try {
     return new URL(url).host;
   } catch {
-    return url;
+    return "";
   }
+}
+
+/** Accent- and case-insensitive filter over the loaded items. */
+function matches(item: ItemSummary, query: string): boolean {
+  const needle = normalize(query);
+  if (needle.length === 0) {
+    return true;
+  }
+  return normalize(
+    [item.title, item.username ?? "", item.primaryUrl ?? "", hostOf(item.primaryUrl ?? "")].join(
+      " ",
+    ),
+  ).includes(needle);
+}
+
+function normalize(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false">
+      <rect x="4" y="4" width="7" height="7" rx="1.2" fill="none" stroke="currentColor" />
+      <path
+        d="M8 4V2.2A1.2 1.2 0 0 0 6.8 1H2.2A1.2 1.2 0 0 0 1 2.2v4.6A1.2 1.2 0 0 0 2.2 8H4"
+        fill="none"
+        stroke="currentColor"
+      />
+    </svg>
+  );
 }

@@ -171,6 +171,26 @@ values into tracked files, docs, tickets or PRs — `*.local.txt` and `opencode.
   `docs/`, `refactor/`, `test/`. Process and security checklist: `CONTRIBUTING.md`.
   Docs and README are French; code, comments, commits are English.
 
+## UI & design workflow
+
+- **Visual source of truth:** read `apps/desktop/PRODUCT.md` and
+  `apps/desktop/DESIGN.md` before touching `apps/desktop` or `apps/extension`. The popup
+  has no `DESIGN.md` of its own: it reuses the desktop tokens, type scale and radii, with
+  `apps/extension/PRODUCT.md` for scope.
+- **Refinement, not redesign:** use the `impeccable` skill (`.github/skills/impeccable`,
+  commands `audit`, `polish`, `layout`, `clarify`) for any existing surface, inside the
+  current stack — React + Vite and plain CSS custom properties, **no Tailwind**. The
+  system lives in `apps/desktop/src/styles.css`; the popup mirrors it in
+  `apps/extension/entrypoints/popup/styles.css`.
+- **Visual check:** complex screens and the 380 px popup are validated on a real render,
+  never from the source. Build the extension, serve `.output/chrome-mv3`, open
+  `popup.html` in a browser at 380 px (`chrome.runtime.sendMessage` must be mocked, the
+  popup is not a page), and run the Taste Skill layout inspector:
+  `node .agents/skills/design-taste-frontend/assets/layout/check.mjs --url <url> --sizes 380x600`.
+  Fix every overflow and unintentional clipped text before committing; intentional
+  truncation keeps `text-overflow: ellipsis` plus a `title`. The installed Taste Skill
+  ships no `inspect.mjs`: its layout checker is `check.mjs`.
+
 ## Security invariants (see `docs/regles.md`)
 
 - No password, key, TOTP seed/code or decrypted value in MCP responses, errors, logs,

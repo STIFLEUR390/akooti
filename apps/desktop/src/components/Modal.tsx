@@ -43,6 +43,28 @@ export function Modal({ title, description, onClose, children, footer, wide }: M
       if (event.key === "Escape") {
         event.stopPropagation();
         onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panel.current) {
+        return;
+      }
+      // Keep Tab inside the dialog: the page behind is not inert.
+      const focusables = Array.from(
+        panel.current.querySelectorAll<HTMLElement>(
+          "input, select, textarea, button, [href], [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((element) => !element.hasAttribute("disabled") && element.offsetParent !== null);
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener("keydown", listener, true);

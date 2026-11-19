@@ -326,64 +326,65 @@ export function ItemFormModal({
         </fieldset>
 
         <fieldset className="fieldset">
-          <legend>
+          <legend>Sélecteurs d'autofill</legend>
+          <div className="form">
             <button
               type="button"
               className="text-button"
               onClick={() => setShowSelectors((current) => !current)}
               aria-expanded={showSelectors}
             >
-              {showSelectors ? "Masquer" : "Afficher"} les sélecteurs d'autofill
+              {showSelectors ? "Masquer" : "Afficher"} les sélecteurs
             </button>
-          </legend>
-          {showSelectors ? (
-            <div className="form__row">
-              <label className="field">
-                <span className="field__label">Sélecteur identifiant</span>
-                <input
-                  value={selectors.username}
-                  onChange={(event) =>
-                    setSelectors((current) => ({ ...current, username: event.target.value }))
-                  }
-                  placeholder="#email"
-                  spellCheck={false}
-                />
-              </label>
-              <label className="field">
-                <span className="field__label">Sélecteur mot de passe</span>
-                <input
-                  value={selectors.password}
-                  onChange={(event) =>
-                    setSelectors((current) => ({ ...current, password: event.target.value }))
-                  }
-                  placeholder="#password"
-                  spellCheck={false}
-                />
-              </label>
-              <label className="field">
-                <span className="field__label">Sélecteur TOTP</span>
-                <input
-                  value={selectors.totp}
-                  onChange={(event) =>
-                    setSelectors((current) => ({ ...current, totp: event.target.value }))
-                  }
-                  placeholder="#otp"
-                  spellCheck={false}
-                />
-              </label>
-              <label className="field">
-                <span className="field__label">Sélecteur validation</span>
-                <input
-                  value={selectors.submit}
-                  onChange={(event) =>
-                    setSelectors((current) => ({ ...current, submit: event.target.value }))
-                  }
-                  placeholder="button[type=submit]"
-                  spellCheck={false}
-                />
-              </label>
-            </div>
-          ) : null}
+            {showSelectors ? (
+              <div className="form__row">
+                <label className="field">
+                  <span className="field__label">Sélecteur identifiant</span>
+                  <input
+                    value={selectors.username}
+                    onChange={(event) =>
+                      setSelectors((current) => ({ ...current, username: event.target.value }))
+                    }
+                    placeholder="#email"
+                    spellCheck={false}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">Sélecteur mot de passe</span>
+                  <input
+                    value={selectors.password}
+                    onChange={(event) =>
+                      setSelectors((current) => ({ ...current, password: event.target.value }))
+                    }
+                    placeholder="#password"
+                    spellCheck={false}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">Sélecteur TOTP</span>
+                  <input
+                    value={selectors.totp}
+                    onChange={(event) =>
+                      setSelectors((current) => ({ ...current, totp: event.target.value }))
+                    }
+                    placeholder="#otp"
+                    spellCheck={false}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">Sélecteur validation</span>
+                  <input
+                    value={selectors.submit}
+                    onChange={(event) =>
+                      setSelectors((current) => ({ ...current, submit: event.target.value }))
+                    }
+                    placeholder="button[type=submit]"
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
         </fieldset>
 
         {error ? (

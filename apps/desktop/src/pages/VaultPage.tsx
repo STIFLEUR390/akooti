@@ -155,6 +155,7 @@ export function VaultPage({
       <Sidebar
         folders={folders}
         counts={counts}
+        totalItems={vault.items.length}
         activeFolderId={vault.activeFolderId}
         onSelectFolder={vault.setActiveFolderId}
         screen={vault.screen}

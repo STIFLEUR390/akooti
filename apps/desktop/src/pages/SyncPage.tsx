@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Icon } from "../components/Icons";
 import type {
@@ -11,7 +11,7 @@ import type {
   SyncStatus,
 } from "../lib/ipc";
 import { listenBackupStatus, listenSyncStatus, toIpcError } from "../lib/ipc";
-import { absoluteDate, relativeTime } from "../lib/format";
+import { absoluteDate, countLabel, relativeTime } from "../lib/format";
 
 interface SyncPageProps {
   api: AkootiApi;
@@ -69,6 +69,20 @@ function emptyForm(): TargetForm {
 
 function formFor(target: BackupTarget): TargetForm {
   return { ...emptyForm(), id: target.id, name: target.name, provider: target.provider };
+}
+
+/** Backup statuses are stored in English; the UI speaks French. */
+function backupStatusLabel(status: string | null): string {
+  switch (status) {
+    case "success":
+      return "réussie";
+    case "error":
+      return "en échec";
+    case null:
+      return "jamais";
+    default:
+      return status;
+  }
 }
 
 function toInput(form: TargetForm): BackupTargetInput {
@@ -136,17 +150,23 @@ export function SyncPage({ api }: SyncPageProps) {
     const unlisteners: Array<() => void> = [];
     void listenSyncStatus((event) => {
       if (!cancelled) {
-        setNotice(
-          event.status === "success"
-            ? `Sync : ${event.pushed} envoyé(s), ${event.applied} appliqué(s).`
-            : (event.detail ?? "Synchronisation en échec."),
-        );
+        if (event.status === "success") {
+          setNotice(
+            `Sync : ${countLabel(event.pushed, "envoyé")}, ${countLabel(event.applied, "appliqué")}.`,
+          );
+        } else {
+          setError(event.detail ?? "Synchronisation en échec.");
+        }
         void refresh();
       }
     }).then((stop) => (cancelled ? stop() : unlisteners.push(stop)));
     void listenBackupStatus((event) => {
       if (!cancelled) {
-        setNotice(`Sauvegarde « ${event.name} » : ${event.status}.`);
+        if (event.status === "success") {
+          setNotice(`Sauvegarde « ${event.name} » : réussie.`);
+        } else {
+          setError(`Sauvegarde « ${event.name} » : en échec.`);
+        }
         void refresh();
       }
     }).then((stop) => (cancelled ? stop() : unlisteners.push(stop)));
@@ -219,14 +239,6 @@ export function SyncPage({ api }: SyncPageProps) {
     [api, form, run],
   );
 
-  const historyByTarget = useMemo(() => {
-    const result = new Map<string, string>();
-    for (const target of targets) {
-      result.set(target.id, target.lastStatus ?? "—");
-    }
-    return result;
-  }, [targets]);
-
   return (
     <section className="page" aria-labelledby="sync-title">
       <header className="page__header">
@@ -264,7 +276,7 @@ export function SyncPage({ api }: SyncPageProps) {
         </p>
       ) : null}
       {notice ? (
-        <p className="chip chip--quiet" role="status">
+        <p className="notice" role="status">
           {notice}
         </p>
       ) : null}
@@ -412,8 +424,8 @@ export function SyncPage({ api }: SyncPageProps) {
 
         {lastRun ? (
           <p className="field__label" role="status">
-            {lastRun.pushed} envoyé(s) · {lastRun.pulled} reçu(s) · {lastRun.applied} appliqué(s) ·{" "}
-            {lastRun.skipped} ignoré(s)
+            {countLabel(lastRun.pushed, "envoyé")} · {countLabel(lastRun.pulled, "reçu")} ·{" "}
+            {countLabel(lastRun.applied, "appliqué")} · {countLabel(lastRun.skipped, "ignoré")}
             {lastRun.full ? " · reprise complète" : ""}
           </p>
         ) : null}
@@ -431,14 +443,18 @@ export function SyncPage({ api }: SyncPageProps) {
               <li key={target.id}>
                 <div className="audit">
                   <span>{target.name}</span>
-                  <span className="audit__target">{target.summary}</span>
+                  <span className="audit__target" title={target.summary}>
+                    {target.summary}
+                  </span>
                   <span className="chip chip--quiet">
                     {target.intervalMinutes} min · {target.retentionCount} gardés
                   </span>
-                  <span className="chip chip--quiet">
-                    {historyByTarget.get(target.id) === "success"
-                      ? "OK"
-                      : (target.lastStatus ?? "jamais")}
+                  <span
+                    className={
+                      target.lastStatus === "error" ? "chip chip--warn" : "chip chip--quiet"
+                    }
+                  >
+                    {target.lastStatus === "success" ? "OK" : backupStatusLabel(target.lastStatus)}
                   </span>
                   <button
                     type="button"
@@ -491,7 +507,10 @@ export function SyncPage({ api }: SyncPageProps) {
             ))}
           </ul>
         )}
+      </div>
 
+      <div className="card">
+        <h3>{form.id ? "Modifier la cible" : "Ajouter une cible"}</h3>
         <div className="form">
           <p className="field__label">
             Guides de configuration : docs/guides/s3.md et docs/guides/google-drive.md. Les
@@ -716,10 +735,12 @@ export function SyncPage({ api }: SyncPageProps) {
               <li key={entry.id}>
                 <div className="audit">
                   <span className={entry.status === "success" ? "chip" : "chip chip--warn"}>
-                    {entry.status}
+                    {backupStatusLabel(entry.status)}
                   </span>
                   <span>{absoluteDate(entry.startedAt)}</span>
-                  <span className="audit__target">{entry.detail ?? entry.snapshotName ?? "—"}</span>
+                  <span className="audit__target" title={entry.detail ?? entry.snapshotName ?? "—"}>
+                    {entry.detail ?? entry.snapshotName ?? "—"}
+                  </span>
                   <span className="chip chip--quiet">
                     {entry.sizeBytes ? `${Math.round(entry.sizeBytes / 1024)} Kio` : "—"}
                   </span>

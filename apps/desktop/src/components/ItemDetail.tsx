@@ -118,7 +118,7 @@ export function ItemDetail({
       </header>
 
       {confirmDelete ? (
-        <div className="confirm" role="alertdialog" aria-label="Confirmer la suppression">
+        <div className="confirm" role="group" aria-label="Confirmer la suppression">
           <p>
             Supprimer « {item.title} » ? L'entrée part en corbeille et peut être restaurée plus
             tard.
@@ -296,6 +296,8 @@ export function ItemDetail({
                   type="button"
                   className="chip__remove"
                   onClick={() => onRemoveFromFolder(folderId)}
+                  disabled={item.folderIds.length === 1}
+                  title="Au moins un dossier est requis"
                   aria-label={`Retirer du dossier ${folder?.name ?? folderId}`}
                 >
                   <Icon name="close" size={11} />

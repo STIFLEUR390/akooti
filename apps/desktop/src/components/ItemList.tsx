@@ -109,6 +109,7 @@ export function ItemList({
                 className={active ? "item-row item-row--active" : "item-row"}
                 onClick={() => onSelect(item.id)}
                 aria-current={active ? "true" : undefined}
+                title={item.title}
               >
                 <span className="item-row__avatar" aria-hidden="true">
                   {initials(item.title)}

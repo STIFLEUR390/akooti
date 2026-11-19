@@ -4,6 +4,7 @@ import type { Folder } from "@akooti/shared";
 
 import { Icon } from "../components/Icons";
 import type { Notices } from "../hooks/useToasts";
+import { countLabel } from "../lib/format";
 import type {
   AkootiApi,
   DaemonStatus,
@@ -48,6 +49,10 @@ const STATUS_LABELS: Record<McpAuditEntry["status"], string> = {
   denied: "refusé",
   error: "erreur",
 };
+
+const SCOPE_LABELS = Object.fromEntries(
+  SCOPES.map((scope) => [scope.value, scope.label]),
+) as Record<McpScope, string>;
 
 function formatTime(seconds: number | null): string {
   if (seconds === null) {
@@ -205,7 +210,8 @@ export function McpPage({ api, folders, notices }: McpPageProps) {
       {issued ? (
         <div className="card card--secret" role="status">
           <h3>
-            <Icon name="key" size={16} /> Secret du jeton « {issued.token.name} »
+            <Icon name="key" size={16} /> Secret du jeton{" "}
+            <span className="card__name">« {issued.token.name} »</span>
           </h3>
           <p>
             Ce secret n'est affiché qu'une fois. Collez-le dans la configuration du client MCP :
@@ -274,16 +280,18 @@ export function McpPage({ api, folders, notices }: McpPageProps) {
 
         <fieldset className="fieldset">
           <legend>Dossiers accessibles</legend>
-          {folders.map((folder) => (
-            <label key={folder.id} className="checkbox">
-              <input
-                type="checkbox"
-                checked={folderIds.includes(folder.id)}
-                onChange={() => toggleFolder(folder.id)}
-              />
-              <span>{folder.name}</span>
-            </label>
-          ))}
+          <div className="checkbox-grid">
+            {folders.map((folder) => (
+              <label key={folder.id} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={folderIds.includes(folder.id)}
+                  onChange={() => toggleFolder(folder.id)}
+                />
+                <span>{folder.name}</span>
+              </label>
+            ))}
+          </div>
         </fieldset>
 
         <label className="field">
@@ -321,21 +329,25 @@ export function McpPage({ api, folders, notices }: McpPageProps) {
         <ul className="rule-list">
           {tokens.map((token) => (
             <li key={token.id} className="rule">
-              <div className="rule__pattern">
-                <strong>{token.name}</strong>
-                <code>{token.tokenPrefix}…</code>
-                {token.scopes.map((scope) => (
-                  <span key={scope} className="chip chip--quiet">
-                    {scope}
+              <div className="rule__main">
+                <div className="rule__pattern">
+                  <strong>{token.name}</strong>
+                  <code>{token.tokenPrefix}…</code>
+                </div>
+                <div className="rule__meta">
+                  {token.scopes.map((scope) => (
+                    <span key={scope} className="chip chip--quiet">
+                      {SCOPE_LABELS[scope]}
+                    </span>
+                  ))}
+                  <span>
+                    {countLabel(token.folderIds.length, "dossier")} ·{" "}
+                    {token.expiresAt === null
+                      ? "sans expiration"
+                      : `expire le ${formatTime(token.expiresAt)}`}{" "}
+                    · dernier usage {formatTime(token.lastUsedAt)}
                   </span>
-                ))}
-                <span className="field__hint">
-                  {token.folderIds.length} dossier(s) ·{" "}
-                  {token.expiresAt === null
-                    ? "sans expiration"
-                    : `expire le ${formatTime(token.expiresAt)}`}{" "}
-                  · dernier usage {formatTime(token.lastUsedAt)}
-                </span>
+                </div>
               </div>
               {token.active ? (
                 <button
@@ -375,7 +387,9 @@ export function McpPage({ api, folders, notices }: McpPageProps) {
                 {STATUS_LABELS[entry.status]}
               </span>
               <code>{entry.action}</code>
-              <span className="audit__target">{entry.targetOrigin ?? entry.details ?? "—"}</span>
+              <span className="audit__target" title={entry.targetOrigin ?? entry.details ?? "—"}>
+                {entry.targetOrigin ?? entry.details ?? "—"}
+              </span>
               <time dateTime={new Date(entry.createdAt * 1_000).toISOString()}>
                 {formatTime(entry.createdAt)}
               </time>
